@@ -1,0 +1,23 @@
+history/
+lastchat.md
+lastworks.md
+handoff/
+
+# Obsidian local/runtime state at root Vault
+.obsidian/*.workspace
+.obsidian/workspace*.json
+.obsidian/workspace.json
+.obsidian/graph.json
+.obsidian/cache/
+.obsidian/plugins/
+.stversions/
+.trash/
+
+# Vault-visible but not Git-persisted working content
+drafts/
+translate-cache/
+
+# Runtime/local support data
+tmp/
+artifacts/
+e2e/

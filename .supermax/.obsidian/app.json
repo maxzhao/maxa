@@ -1,0 +1,5 @@
+{
+  "vaultName": "smx-knowledge::maxa::8dd25f74",
+  "managedBy": "project-admin",
+  "note": "Commit stable shared config only. Local workspace/cache state must stay ignored."
+}

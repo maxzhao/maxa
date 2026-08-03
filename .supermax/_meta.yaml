@@ -1,0 +1,21 @@
+name: smx-knowledge::maxa::8dd25f74
+schema_version: 1
+supermax_schema_version: 1
+project_root: "~/maxa"
+vault_root: .supermax
+created: 2026-08-03
+updated: 2026-08-03
+status: active
+index_mode: manual-curated
+source_layer: root
+wiki_root: wiki
+sync_mode: syncthing
+syncthing_folder_id: smx-knowledge-maxa-8dd25f74
+notes:
+  - project-root-vault
+  - explicit-vault-target-required
+  - graph-ops-must-not-fallback-to-default-vault
+
+codecompanion:
+  default_adapter: deepseek
+  default_model: deepseek-v4-flash

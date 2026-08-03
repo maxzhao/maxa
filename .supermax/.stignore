@@ -1,0 +1,40 @@
+# SuperMax root Vault - local/runtime exclusions
+# Publishable/syncable content intentionally NOT ignored: /tasks, /drafts, /translate-cache
+# Root-anchored patterns without trailing slash ignore the directory entry itself.
+# (?d) allows Syncthing to delete already-synced ignored paths on other devices.
+# Sync owner: WSL/Linux-native projects use WSL Syncthing; Windows-mounted projects use Windows Syncthing.
+
+# Obsidian local state
+/.obsidian/workspace.json
+/.obsidian/workspace-mobile.json
+/.obsidian/workspace*.json
+/.obsidian/hotkeys.json
+(?d)/.obsidian/cache
+(?d)/.obsidian/cache/**
+(?d)/.trash
+(?d)/.trash/**
+
+# Syncthing runtime/version data
+(?d)/.stversions
+(?d)/.stversions/**
+/.stfolder
+
+# SuperMax runtime/local zones
+(?d)/skills
+(?d)/skills/**
+(?d)/fragments
+(?d)/fragments/**
+(?d)/tmp
+(?d)/tmp/**
+(?d)/history
+(?d)/history/**
+(?d)/artifacts
+(?d)/artifacts/**
+(?d)/handoff
+(?d)/handoff/**
+(?d)/e2e
+(?d)/e2e/**
+
+# Retired v0 Vault path; must not be reintroduced under the v1 root Vault
+(?d)/knowledge
+(?d)/knowledge/**
