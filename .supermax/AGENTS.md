@@ -8,10 +8,38 @@
 > here (SuperMax/CodeCompanion baseline, `NVIM_APPNAME` isolation, `specs/` evidence) are
 > engineering facts for agents and are intentionally not exposed in outward-facing copy.
 
+## Dependency Policy (LazyVim baseline)
+
+- The maxa runtime is developed **inside the LazyVim harness environment**, not in a
+  plugin-free "pure" Neovim. Development baseline = LazyVim and everything it pulls in.
+- **Allowed dependencies**: LazyVim and any of its transitive plugin modules that are
+  present in the harness (e.g. plenary.nvim, nui.nvim, mini.nvim, telescope). Use these
+  as first-class dependencies where they provide a generic capability.
+- **Anti-duplication (no reinventing the wheel)**: prefer an existing LazyVim-ecosystem
+  module over hand-writing generic infrastructure. This includes YAML/serialization
+  parsing, floating-window/UI components, async/await primitives, path utilities, and
+  similar generic facilities. Reimplement a facility only when none of the harness's
+  available modules fits or when target semantics genuinely differ.
+- **import-guard scope**: importing/modloading `codecompanion.*`, `mcphub.*`, or
+  `lua/util/hooks/*` is still forbidden (these are the soon-to-be-replaced implementations).
+  This restriction does **not** forbid LazyVim-ecosystem dependencies. Guard rejects only
+  the three legacy families, never `plenary.*`, `nui.*`, etc.
+- **`NVIM_APPNAME=nvim-maxa`** is the isolated target-runtime config used for validation;
+  it is a LazyVim-based config that must not touch `~/.config/nvim` and must not load the
+  three legacy families. It does not mean a dependency-free Neovim.
+- **How `nvim-maxa` becomes a clean LazyVim environment**: `~/.config/nvim-maxa` is a
+  one-time **soft link to this repository** (`ln -s /home/maxzhao/maxa ~/.config/nvim-maxa`).
+  Because `NVIM_APPNAME` makes nvim read config from `~/.config/nvim-maxa` (= this repo),
+  launching `NVIM_APPNAME=nvim-maxa nvim` boots **this project's LazyVim config** as the
+  alternate of `~/.config/nvim`. The project being the config directory puts `lua/maxa` on
+  the runtimepath automatically, so `require("maxa.runtime.host.nvim")` needs **no manual
+  `runtimepath` prepend**. LazyVim/plugins are installed under the isolated
+  `~/.local/share/nvim-maxa/lazy/` (never `~/.config/nvim`), keeping the real config intact.
+
 ## Project Scope
 
-- Purpose: spec-driven engineering project whose target is a maxa replacement runtime built **inside** this LazyVim/Neovim mother repository. The runtime will eventually replace CodeCompanion and MCPHub; it is built greenfield here (the repository does not currently contain codecompanion/mcphub/hook sources). Current deliverable is the draft specification and the seven-phase implementation plan under `.supermax/specs/`; the runtime code is not yet implemented. `.supermax/` belongs only to this development mother repository; a completed runtime must use the target project's `.maxa/` directory and must not depend on this repository's `.supermax/`.
-- Development boundary: this root is a real **git** repository (LazyVim starter harness with `init.lua`, `lua/config/*`, `lua/plugins/*`). It is a self-contained harness, not a Neovim plugin and not the user's active `~/.config/nvim`. The maxa runtime will be added under `lua/maxa/runtime/...` (managed by the SuperMax development environment) and is validated in isolation via `NVIM_APPNAME=nvim-maxa`; it MUST NOT touch `~/.config/nvim`.
+- Purpose: spec-driven engineering project whose target is a maxa replacement runtime built **inside** this LazyVim/Neovim mother repository. The runtime will eventually replace CodeCompanion and MCPHub; it is built greenfield here (the repository does not currently contain codecompanion/mcphub/hook sources). Current deliverable: the draft specification and seven-phase implementation plan under `.supermax/specs/`, plus an implemented **Phase 0** skeleton under `lua/maxa/runtime/` (guard, schema, events, conversation, config, mock/echo protocol, session/orchestrator, host/nvim Chat view; see the `phase 0:` commit). `.supermax/` belongs only to this development mother repository; a completed runtime must use the target project's `.maxa/` directory and must not depend on this repository's `.supermax/`.
+- Development boundary: this root is a real **git** repository (LazyVim starter harness with `init.lua`, `lua/config/*`, `lua/plugins/*`). It is a self-contained harness, not a Neovim plugin and not the user's active `~/.config/nvim`. The maxa runtime is developed **inside the LazyVim environment** under `lua/maxa/runtime/...` (managed by the SuperMax development environment) and may depend on LazyVim's ecosystem (see Dependency Policy). Validation is isolated via `NVIM_APPNAME=nvim-maxa` (a LazyVim-based `nvim-maxa` config); the runtime MUST NOT touch `~/.config/nvim`.
 - Normative source-of-truth upstream evidence lives under `specs/` (pinned to the CodeCompanion `v18.7.0` baseline commit `558518f8d78a44198cd428f6bf8bf48bfa38d76d`). `history/` is maxa runtime local history, not project source.
 
 ## Project Root: `~/maxa`
@@ -28,7 +56,7 @@
 - `.supermax/history/` — development mother-repository SuperMax chat history and caches. Runtime/local data, not source; do not treat as target-project runtime state. The completed runtime stores target-project state under `<project-root>/.maxa/history/`.
 - Root source tree today: LazyVim starter harness only (`init.lua`, `lua/config/*`, `lua/plugins/example.lua`). The maxa runtime layout (semantic boundaries from `implementation-sequence.md`) is not yet created:
   `lua/maxa/runtime/{config,protocol,conversation,session,orchestrator,tools,mcp,skills,events,host/nvim,compat}`.
-- This root IS a git repository (single `初始化当前项目` commit). There is **no** `justfile` and **no** `justfile.md`; use the raw command when no matching recipe exists.
+- This root IS a git repository (initial `feat: init current project` plus later commits, including `phase 0: maxa runtime skeleton + minimal chat`). There **is** a `justfile` (freezes project init / test-env startup / validation; see `just --list`): `just setup` (create `~/.config/nvim-maxa` symlink -> this repo), `just run` (`NVIM_APPNAME=nvim-maxa nvim`), `just smoke` (headless runtime+import-guard+echo submit check), `just lint`/`fmt` (stylua), `just check` (`git diff --check`). Use the matching recipe instead of the raw command; fall back to the raw command only when no recipe applies.
 - `lazy-lock.json` is Git-ignored (generated locally). The CodeCompanion `v18.7.0` entry cited by the reverse spec is traced from the user's real configuration, not from this harness lock.
 
 ## Environment And Stack
@@ -36,22 +64,22 @@
 | Item | Value |
 | --- | --- |
 | Platform | WSL/Linux-native (project path is Linux native) |
-| Harness | LazyVim starter mother repository (git), `NVIM_APPNAME=nvim-maxa` isolated testing only |
+| Harness | LazyVim starter mother repository (git); development baseline = LazyVim + ecosystem; `NVIM_APPNAME=nvim-maxa` isolated LazyVim-based target-runtime config |
 | Target system | Neovim 0.11.5 + maxa runtime |
 | Upstream baseline | CodeCompanion.nvim `v18.7.0` @ `558518f8d78a44198cd428f6bf8bf48bfa38d76d` |
 | Protocol scope | OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, Gemini native |
-| Toolchain | nvim 0.11.5 (linuxbrew), stylua 2.4.1 (mason); plenary.nvim `74b06c6` is pinned in the (ignored) `lazy-lock.json` but no test harness is built on it yet |
-| Runtime source status | `lua/maxa/runtime/` not yet created; greenfield build, no codecompanion/mcphub here |
+| Toolchain | nvim 0.11.5 (linuxbrew), stylua 2.4.1 (mason); plenary.nvim `74b06c6` (LazyVim-environments dependencies such as plenary/nui are available as first-class deps, see Dependency Policy) |
+| Runtime source status | `lua/maxa/runtime/` greenfield under LazyVim; depends on LazyVim ecosystem; no codecompanion/mcphub sources here |
 
 ## Commands And Validation
 
-- Before shell commands, follow the current session Justfile check rules. This project has **no** `justfile` and **no** `justfile.md`; use the raw command when no matching recipe exists.
+- Before shell commands, follow the current session Justfile check rules. This project **has** a `justfile` (see `just --list`): `setup` / `run` / `smoke` / `lint` / `fmt` / `check`. First run `just --list`; when a recipe matches the intended operation, run `just <recipe>` instead of the raw command. Use the raw command only when no recipe applies.
 - This root IS a git repository, so `git diff --check` is runnable for whitespace validation. No application build/test/lint entrypoints exist yet; the toolchain is verified available (see Environment And Stack).
 - Spec-document changes are validated by:
   - full-file reread and evidence check against `specs/baseline.md` evidence-priority rules,
   - `git diff --check` for whitespace/conflict-marker errors,
   - keeping source/behavior claims traceable to the pinned baseline or explicitly labeled `latest-upstream`/`assumption`.
-- No application build/test/lint entrypoints exist yet; do not claim a test/harness exists before it does. Future runtime validation must run in isolation via `nvim --headless` under `NVIM_APPNAME=nvim-maxa` and must never load `codecompanion.*`, `mcphub.*`, or `lua/util/hooks/*`.
+- No application build/test/lint entrypoints exist yet; do not claim a test/harness exists before it does. Future runtime validation must run under the LazyVim-based `NVIM_APPNAME=nvim-maxa` (typically `nvim --headless`) and must never load `codecompanion.*`, `mcphub.*`, or `lua/util/hooks/*`; loading LazyVim-ecosystem dependencies such as `plenary.*`/`nui.*` is allowed (Dependency Policy).
 - After modifying behavior-affecting artifacts, run the closest relevant existing validation; do not report unvalidated changes as complete.
 
 ## Execution Boundaries
@@ -66,7 +94,7 @@
 - The `specs/` documents are written largely in Chinese with English frontmatter. Keep existing doc language for the content you edit; `AGENTS.md` itself stays English.
 - Behavior requirements must trace to the pinned baseline commit, not floating upstream `main`. Never present latest-upstream or inferred behavior as confirmed baseline fact.
 - The legacy `ideas/codecompanion-reverse-spec/...` naming was fully replaced by the `specs/` namespace (paths, references, tags) on 2026-08-03, along with removal of an accidental 149-level nested duplicate tree; see `specs/log.md`. Do not re-introduce `ideas/` reverse-spec paths.
-- Development is greenfield and isolation-scoped: build the maxa runtime inside this harness only, run manual checks / future validation via `NVIM_APPNAME=nvim-maxa`, and never read/write `~/.config/nvim`. During development, Agents may read `.supermax/` as Agent/knowledge/spec evidence; runtime code MUST NOT use it as a target project's configuration or persistence root. The final project-local runtime root is `.maxa/` (including `.maxa/runtime.yaml`, `.maxa/mcp/servers.yaml`, `.maxa/system.md`, `.maxa/skills/`, and `.maxa/history/`). "Replacing CodeCompanion/MCPHub" is a future compatibility gate, not a current prerequisite.
+- Development is greenfield, isolated, and LazyVim-based: build the maxa runtime inside this LazyVim harness (may depend on its ecosystem, see Dependency Policy), run manual checks / future validation via the LazyVim-based `NVIM_APPNAME=nvim-maxa`, and never read/write `~/.config/nvim`. During development, Agents may read `.supermax/` as Agent/knowledge/spec evidence; runtime code MUST NOT use it as a target project's configuration or persistence root. The final project-local runtime root is `.maxa/` (including `.maxa/runtime.yaml`, `.maxa/mcp/servers.yaml`, `.maxa/system.md`, `.maxa/skills/`, and `.maxa/history/`). "Replacing CodeCompanion/MCPHub" is a future compatibility gate, not a current prerequisite.
 - No module may move from `status: partial` until its `validation-matrix.md` fixture rows have executable replacement-runtime tests (or an explicitly accepted removal decision). Hook tests validate current compatibility only and never count as replacement passes.
 
 ## Project Knowledge Vault

@@ -1,0 +1,55 @@
+# maxa development recipes — freeze project init / test-env startup / validation.
+# Requires: just, nvim (>=0.11), stylua. No application build/lint exists beyond these.
+
+set shell := ["bash", "-c"]
+
+# Project root = directory containing this justfile.
+root := justfile_directory()
+
+# The isolated LazyVim config directory (soft-link target).
+maxa_conf := env_var("HOME") + "/.config/nvim-maxa"   # ~/.config/nvim-maxa soft-link to this repo
+
+# List recipes with descriptions (default `just` target).
+default:
+    @just --list
+
+# One-time: create ~/.config/nvim-maxa soft link -> this repo.
+# Makes `NVIM_APPNAME=nvim-maxa nvim` boot THIS repo's LazyVim config as the
+# (clean, LazyVim-only) alternate of ~/.config/nvim, without touching it.
+setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -L '{{maxa_conf}}' ]; then
+      echo "'{{maxa_conf}}' already symlinked -> $(readlink '{{maxa_conf}}')"
+    elif [ -e '{{maxa_conf}}' ]; then
+      echo "error: '{{maxa_conf}}' exists but is not a symlink; remove or inspect it first" >&2
+      exit 1
+    else
+      ln -s '{{root}}' '{{maxa_conf}}'
+      echo "created '{{maxa_conf}}' -> '{{root}}'"
+    fi
+
+# Launch the maxa development/test environment.
+# Clean, only-LazyVim Neovim using this repo as config; never touches ~/.config/nvim.
+run: (setup)
+    NVIM_APPNAME=nvim-maxa nvim
+
+# Headless smoke: boot via nvim-maxa soft-link config (project = config dir, so lua/maxa
+# is on rtp), then load runtime + import-guard + one echo Chat submit (offline, key-free).
+smoke: (setup)
+    # Run inside the event loop so lazy.nvim can register plugin runtimes before smoke.lua
+    # loads the maxa runtime. `-l` would execute before lazy's startup pass => plenary/snacks
+    # missing. Use `-c` + vim.defer_fn, which enters the loop and waits 2s for lazy.
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() d='{{root}}/scripts/smoke.lua' local ok=pcall(dofile,d) vim.cmd('qa!') end, 2000)"
+
+# stylua check
+lint:
+    stylua --check lua/maxa
+
+# stylua format
+fmt:
+    stylua lua/maxa
+
+# whitespace / conflict-marker check
+check:
+    git diff --check
