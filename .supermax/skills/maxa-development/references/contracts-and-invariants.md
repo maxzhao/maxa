@@ -52,15 +52,22 @@ provider = {
 - sequence monotonic per bus; single callback failure is pcall-isolated.
 - Extend the name set (add) only; names live on `M.events`.
 
-## Config / snapshot (fail-closed)
+## Config (LazyVim opts) / state (fail-closed)
 
-- Project root bound to a `.maxa/runtime.yaml` marker; missing marker is
-  fail-closed (no `.supermax/` fallback).
-- Loaded once into an immutable snapshot; unknown core keys and literal secrets
-  are rejected; credentials enter only by env-var name.
-- YAML decode via `config/yaml.lua` (TinyYaml wrapper). TinyYaml is tolerant of
-  some malformed flow/quote syntax; the real fail-closed guarantee is enforced
-  one layer up in `config.load` (schema / unknown-key / secret validation).
+- Configuration follows LazyVim rules: defaults in `lua/maxa/init.lua` `M.defaults`
+  (comments are the documentation); users override via `lua/plugins/maxa.lua` `opts`;
+  `config.configure` deep-merges and validates fail-closed (unknown top-level keys,
+  protocol enum, capability matrix, literal-secret rejection); credentials enter
+  only by env-var name (`api_key_env`). There is NO `.maxa/runtime.yaml` config layer.
+- `.maxa/state.yaml` is the only `.maxa/` state file (formal name, yaml; role like
+  SuperMax `.supermax/_meta.yaml`), read/written via `config.load_state`/`save_state`;
+  missing state is "not initialized", not a config error.
+- Extension content follows CodeCompanion file conventions (not opts):
+  `.maxa/mcp/servers.yaml`, `.maxa/skills/`; `.supermax/` is never a runtime root.
+- YAML decode via `config/yaml.lua` (TinyYaml wrapper) for `state.yaml` only.
+  TinyYaml is tolerant of some malformed flow/quote syntax; the real fail-closed
+  guarantee is enforced in `config.configure` (opts validation) and `load_state`
+  (decode contract).
 
 ## State machine (session/orchestrator)
 

@@ -1,76 +1,68 @@
 -- filepath: lua/maxa/runtime/config/init.lua
---- maxa runtime project configuration (phase-1 W3: full schema + provider resolution).
+--- maxa runtime configuration：LazyVim opts 合并 + fail-closed 校验 + 项目运行状态。
 ---
---- Delivers, per `.supermax/drafts/phase1-implementation-plan.md` §4.5 and
---- `specs/modules/supermax-configuration/spec.md`:
----   * project-root binding : walks upward from the caller's working directory looking
----     for a `.maxa/runtime.yaml` marker; if none is found it fails closed (no fallback
----     to the development mother repository's `.supermax/`).
----   * immutable snapshot   : the `.maxa/runtime.yaml` file is read once, validated,
----     and frozen into a read-only snapshot; later reads (`get`) never re-parse.
----   * fail-closed parsing  : unknown *core* fields and unknown nested struct fields
----     are validation errors; credentials never enter the snapshot (only the names of
----     read-only env vars are allowed, per `api_key_env`; a literal secret value is
----     rejected). `.supermax/` is never a runtime configuration source.
----   * full schema          : `runtime.yaml` covers the spec's complete field set
----     (schema_version/project_id/provider{default,definitions}/history/orchestrator/
----     ui/skills/mcp/status/extensions). The phase-0 top-level string `provider` and
----     `model` fields are deprecated and now fail closed (not compatible).
----   * capability matrix    : per-provider `capabilities` are checked against the
----     protocol's native channels (`provider-contract` spec matrix); declaring `false`
----     for a channel the protocol always provides is a configuration conflict.
----   * provider resolution  : `resolve_provider` normalizes a provider definition
----     (trailing-slash base_url, merged capabilities/request defaults) and binds the
----     protocol adapter instance when the protocol registry has one registered
----     (W4-W7 register real adapters; until then `record.adapter` stays nil and the
----     caller can bind later via `record:bind(adapter)`).
----   * evidence             : each snapshot records its `source` (resolved path,
----     project root, content hash, schema version) for reproducibility and audit.
+--- 配置架构（遵循 LazyVim 插件惯例；参考 CodeCompanion `setup(opts)` + 内部
+--- defaults 深合并模型，见 `specs/modules/bootstrap-configuration/spec.md`）：
+---   * 默认值统一在 `lua/maxa/init.lua` 的 `M.defaults` 管理（注释即文档）；
+---   * 用户配置 = LazyVim `opts`（`lua/plugins/maxa.lua` 或 `{ "maxa", opts = {...} }`）；
+---   * `configure(defaults, opts)` 深合并 + 校验，产出有效配置树（`M.effective`）；
+---   * 扩展类内容遵循 CodeCompanion 文件约定（不是 opts 参数）：项目 MCP 声明
+---     `.maxa/mcp/servers.yaml`、项目 Skills `.maxa/skills/`（见
+---     `specs/modules/mcp-skill-runtime/spec.md`）。
 ---
---- Upstream alignment (read-only, never copied): `codecompanion/config.lua`
---- (`config.interactions.chat.*`) + `Chat:new` args + `schema.lua`; gateway behavior
---- from `~/.config/nvim/lua/plugins/ai.lua` `make_llm_gateway_adapter`
---- (name/protocol/base_url validation, trailing-slash normalization); target contract
---- from `specs/modules/supermax-configuration/spec.md` and
---- `specs/modules/provider-contract/spec.md`.
+--- 项目运行状态（非配置层）是 `<project-root>/.maxa/state.yaml`（正式名，yaml 格式；
+--- 角色类似 SuperMax `.supermax/_meta.yaml`），由 `find_project_root` / `load_state` /
+--- `save_state` 读写；缺失视为未初始化，不构成配置错误。凭据永远只按名引用
+--- （`api_key_env`），字面量 secret 值被拒绝。
 ---
---- Dependencies: `maxa.runtime.schema` (validation + typed errors), the self-contained
---- `maxa.runtime.config.yaml` decoder, and `plenary.path` (project-root walk).
---- It never loads `codecompanion.*`/`mcphub.*`/`lua/util/hooks/*`.
+--- 上游对齐（只读，不复制）：`codecompanion/config.lua`（defaults、深合并、
+--- 配置访问器）；`lua/plugins/ai.lua` `make_llm_gateway_adapter`（name/protocol/
+--- base_url 校验、trailing-slash 归一化）；目标契约见
+--- `specs/modules/supermax-configuration/spec.md` 与
+--- `specs/modules/provider-contract/spec.md`。
+---
+--- Dependencies: `maxa.runtime.schema`（typed errors），`maxa.runtime.config.yaml`
+--- （state.yaml 解码）。Never loads `codecompanion.*`/`mcphub.*`/`lua/util/hooks/*`.
 ----------------------------------------------------------------------------------------
 local schema = require("maxa.runtime.schema")
 local yaml = require("maxa.runtime.config.yaml")
-local Path = require("plenary.path")
-
-local islist = vim.islist or vim.tbl_islist
-
 local M = {}
 M.name = "config"
 
---- Marker file that both locates a project root and carries the runtime overrides.
-M.RUNTIME_YAML = ".maxa/runtime.yaml"
+--- 项目运行状态文件（正式名）：`.maxa/` 下唯一的状态文件（非配置层）。
+M.STATE_YAML = ".maxa/state.yaml"
+--- 项目目录标记：`.maxa/` 目录本身用于定位项目根（状态文件所在）。
+M.STATE_DIR = ".maxa"
+
+--- 允许的核心顶层键（LazyVim opts 顶层；`extensions` 是唯一开放键）。
+M.CORE_KEYS = {
+  "provider",
+  "model",
+  "ui",
+  "history",
+  "orchestrator",
+  "skills",
+  "mcp",
+  "status",
+  "keymaps",
+  "extensions",
+}
 
 --- The four protocol enum values (config must never alias one to another: a provider
 --- named `gemini` still has to declare `protocol: gemini` to get native behavior).
 M.PROTOCOLS = { "openai_chat", "openai_responses", "anthropic_messages", "gemini" }
-
 --- Protocol-native capability channels (provider-contract spec matrix): channels the
 --- protocol provides as a first-class contract regardless of model. Declaring `false`
 --- for a native channel is a configuration conflict ("capability 与协议缺省冲突").
---- Declaring `true` for a non-native channel (e.g. openai_chat `reasoning`, which has
---- no standard reasoning channel in the Chat Completions contract — DeepSeek exposes
---- thinking via a model-specific param) is a *model capability claim* and is allowed;
---- the adapter/model validate it at request time, not config time.
---- `vision` is deliberately NOT native-mandatory anywhere: image input exists in every
---- protocol but is always a model property (e.g. deepseek models have none), so both
---- `true` and `false` declarations are legal.
+--- Declaring `true` for a non-native channel (e.g. openai_chat `reasoning`) is a
+--- *model capability claim* and is allowed; the adapter/model validate it at request
+--- time, not config time. `vision` is deliberately NOT native-mandatory anywhere.
 M.PROTOCOL_NATIVE = {
   openai_chat = { tools = true },
   openai_responses = { tools = true, reasoning = true },
   anthropic_messages = { tools = true, reasoning = true },
   gemini = { tools = true, reasoning = true },
 }
-
 --- Default capability values used when a provider definition omits `capabilities`.
 --- Conservative vision default: absent capability declarations must not claim support.
 M.PROTOCOL_DEFAULTS = {
@@ -79,178 +71,10 @@ M.PROTOCOL_DEFAULTS = {
   anthropic_messages = { vision = false, tools = true, reasoning = true },
   gemini = { vision = false, tools = true, reasoning = true },
 }
-
 --- Env-var name pattern: `api_key_env`/`proxy_env` must name a variable, never carry a
 --- credential literal (a real key like `sk-...` or `abc.def` cannot match this).
 M.ENV_NAME_PATTERN = "^[A-Za-z_][A-Za-z0-9_]*$"
-
---- Validators shared by schema fields.
-local function nonempty_string(v)
-  if type(v) ~= "string" or v == "" then
-    return false, "must be a non-empty string"
-  end
-  return true
-end
-local function env_name(v)
-  if type(v) ~= "string" or not v:match(M.ENV_NAME_PATTERN) then
-    return false, "must be an environment variable name (credentials are never literals)"
-  end
-  return true
-end
-local function positive_int(v)
-  if not (type(v) == "number" and math.floor(v) == v and v > 0) then
-    return false, "must be a positive integer"
-  end
-  return true
-end
-local function nonneg_int(v)
-  if not (type(v) == "number" and math.floor(v) == v and v >= 0) then
-    return false, "must be a non-negative integer"
-  end
-  return true
-end
-
---- Full `runtime.yaml` schema (spec §4.5 / supermax-configuration spec). Field types
---- extend the shared schema module with config-local composite types:
----   * `struct`: mapping with declared `fields`; unknown keys fail closed.
----   * `map` with `values`: mapping whose values validate against `values`.
----   * `any`: scalar of any non-table type (empty table = null).
---- `extensions` is the only open, forward-compatible core key.
-M.runtime_schema = {
-  schema_version = { type = "integer", optional = false },
-  project_id = { type = "string", optional = false },
-  provider = {
-    type = "struct",
-    optional = true,
-    fields = {
-      default = { type = "string", optional = true },
-      definitions = {
-        type = "map",
-        optional = true,
-        values = {
-          type = "struct",
-          optional = true,
-          fields = {
-            protocol = { type = "enum", optional = false, choices = M.PROTOCOLS },
-            base_url = { type = "string", optional = false, validate = nonempty_string },
-            api_key_env = { type = "string", optional = true, validate = env_name },
-            model = { type = "string", optional = false, validate = nonempty_string },
-            context_window = { type = "integer", optional = true, validate = positive_int },
-            capabilities = {
-              type = "struct",
-              optional = true,
-              fields = {
-                vision = { type = "boolean", optional = true },
-                tools = { type = "boolean", optional = true },
-                reasoning = { type = "boolean", optional = true },
-              },
-            },
-            request = {
-              type = "struct",
-              optional = true,
-              fields = {
-                timeout_ms = { type = "integer", optional = true, validate = positive_int },
-                connect_timeout_ms = { type = "integer", optional = true, validate = positive_int },
-                retries = { type = "integer", optional = true, validate = nonneg_int },
-                proxy_env = { type = "string", optional = true, validate = env_name },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-  history = {
-    type = "struct",
-    optional = true,
-    fields = {
-      enabled = { type = "boolean", optional = true },
-      auto_save = { type = "boolean", optional = true },
-      continue_last_session = { type = "boolean", optional = true },
-      title_provider = { type = "string", optional = true },
-      expiration_days = { type = "integer", optional = true, validate = positive_int },
-    },
-  },
-  orchestrator = {
-    type = "struct",
-    optional = true,
-    fields = {
-      tool_concurrency = { type = "integer", optional = true, validate = positive_int },
-      watchdog = {
-        type = "struct",
-        optional = true,
-        fields = {
-          enabled = { type = "boolean", optional = true },
-          timeout_ms = { type = "integer", optional = true, validate = positive_int },
-          max_retries = { type = "integer", optional = true, validate = nonneg_int },
-        },
-      },
-      context_stop = {
-        type = "struct",
-        optional = true,
-        fields = {
-          enabled = { type = "boolean", optional = true },
-          target = {
-            type = "any",
-            optional = true,
-            validate = function(v)
-              if type(v) ~= "string" and type(v) ~= "number" then
-                return false, "must be a string or number"
-              end
-              return true
-            end,
-          },
-        },
-      },
-    },
-  },
-  ui = {
-    type = "struct",
-    optional = true,
-    fields = {
-      layout = { type = "enum", optional = true, choices = { "vertical", "horizontal", "float", "buffer" } },
-      start_in_insert_mode = { type = "boolean", optional = true },
-      spinner_delay_ms = { type = "integer", optional = true, validate = nonneg_int },
-      show_reasoning = { type = "boolean", optional = true },
-      fold_reasoning = { type = "boolean", optional = true },
-    },
-  },
-  skills = {
-    type = "struct",
-    optional = true,
-    fields = {
-      global_enabled = { type = "boolean", optional = true },
-      project_enabled = { type = "boolean", optional = true },
-    },
-  },
-  mcp = {
-    type = "struct",
-    optional = true,
-    fields = {
-      project_servers = { type = "boolean", optional = true },
-      request_timeout_ms = { type = "integer", optional = true, validate = positive_int },
-      auto_start = { type = "boolean", optional = true },
-    },
-  },
-  status = {
-    type = "struct",
-    optional = true,
-    fields = {
-      lualine = { type = "boolean", optional = true },
-      billing = { type = "boolean", optional = true },
-    },
-  },
-  extensions = { type = "map", optional = true },
-}
--- Valid core keys allowed in `.maxa/runtime.yaml` (schema key order).
-M.CORE_KEYS = M.runtime_schema
-
---- Keys that, if found in a non-`extensions` position with a literal scalar value, are
---- treated as credential material and rejected fail-closed. Credentials may only enter
---- indirectly by *name* through `api_key_env` (validated against `ENV_NAME_PATTERN`);
---- a literal secret in the config is always an error. Not a security boundary by
---- itself — it is a fail-closed noise guard for the snapshot which has no
---- secret-bearing fields.
+--- 凭据键名：配置树中任何路径出现这些键且值为非空字符串即拒绝（字面量凭据）。
 M.SECRET_KEYS = {
   api_key = true,
   apikey = true,
@@ -260,75 +84,8 @@ M.SECRET_KEYS = {
   access_key = true,
 }
 
---- FNV-1a 32-bit content hash (deterministic; same input -> same hash across runs).
---- Uses the LuaJIT `bit` library for the XOR step (nvim 0.11 runs LuaJIT). The hash is
---- only an evidence fingerprint, not a security primitive.
----@param s string
----@return string
-local function fnv1a(s)
-  local h = 2166136261
-  for i = 1, #s do
-    local byte = s:byte(i, i)
-    h = bit.bxor(h, byte)
-    -- multiply by 16777619 mod 2^32
-    h = (h * 16777619) % 4294967296
-  end
-  return ("%08x"):format(h)
-end
-
---- Recursively read-only-freeze a plain table so a loaded snapshot cannot be mutated
---- after creation. Returns a **proxy** with no raw keys: every read forwards to the real
---- (frozen) value through `__index`, and every write raises through `__newindex`. Because
---- the proxy stores no raw keys, writes to *existing* config keys (which otherwise bypass
---- `__newindex`) are equally rejected. Nested tables are lazily frozen on access.
----
---- The proxy also records `__maxa_real = t` so `M.unfreeze` can recover the real data
---- tree. This is required because `vim.tbl_*` helpers and `next()` iterate raw keys and
---- therefore see an empty proxy; only `__index`-style direct reads (and `pairs()` via
---- `__pairs`) work on proxies. Real-tree consumers (e.g. `resolve_provider`) must read
---- through `M.unfreeze` for consistent indexing/iteration/counting.
----@param t table plain real value (never mutated after this call)
----@return table frozen read-only proxy
-function M.freeze(t)
-  if type(t) ~= "table" then
-    return t
-  end
-  return setmetatable({}, {
-    __maxa_frozen = true,
-    __maxa_real = t,
-    __index = function(_, k)
-      local v = t[k]
-      if type(v) == "table" then
-        return M.freeze(v)
-      end
-      return v
-    end,
-    __newindex = function(_, k)
-      error("config: snapshot is immutable (fail-closed policy)", 2)
-    end,
-    __pairs = function()
-      return next, t, nil
-    end,
-  })
-end
-
---- Recover the real (unwrapped) value behind a frozen snapshot proxy. Nested values of
---- the returned tree are plain tables (freeze only lazily wraps on `__index` access), so
---- indexing, `pairs` and `vim.tbl_*` counting all agree after one unfreeze. Non-proxy
---- values (including plain caller tables) pass through unchanged; callers treat the
---- result as read-only — the snapshot itself stays immutable.
----@param v any frozen proxy or plain value
----@return any real value
-function M.unfreeze(v)
-  if type(v) ~= "table" then
-    return v
-  end
-  local mt = getmetatable(v)
-  if mt and mt.__maxa_real then
-    return mt.__maxa_real
-  end
-  return v
-end
+--- 当前有效配置树（`configure` 写入；setup 前为 nil）。
+M.effective = nil
 
 --- Build a typed error object (schema contract §4.6).
 ---@param code string one of schema.ERROR.*
@@ -339,378 +96,228 @@ function M.error(code, message, cause)
   return schema.new_error(code, message, cause)
 end
 
---- Resolve a config key from the raw parsed table; used by `load` before freezing.
---- Kept separate from the frozen-snapshot `get` so validation never reads a frozen view.
-local function raw_get(raw, key)
-  if type(raw) ~= "table" then
-    return nil
-  end
-  if key == nil then
-    return raw
-  end
-  if type(key) == "string" and key:find("%.") then
-    local cur = raw
-    for part in key:gmatch("[^.]+") do
-      if type(cur) ~= "table" then
-        return nil
-      end
-      cur = cur[part]
-    end
-    return cur
-  end
-  return raw[key]
-end
-
---- Locate the project root by walking upward from a starting directory looking for the
---- `.maxa/runtime.yaml` marker.
----@param start string absolute directory to begin walking (usually the CWD)
----@return string|nil project_root absolute path to the project containing the marker
----@return string|nil err descriptive failure (nil when a root is found)
----@return string|nil found_yaml absolute path to the found `.maxa/runtime.yaml` (nil when not found)
-function M.find_project_root(start)
-  if type(start) ~= "string" or start == "" then
-    return nil, "config.find_project_root: start directory must be a non-empty string", nil
-  end
-  local found = Path.new(start):find_upwards(M.RUNTIME_YAML)
-  if not found then
-    return nil,
-      ("config.find_project_root: no '%s' found under %q; fail-closed (no default/fallback project root)"):format(
-        M.RUNTIME_YAML,
-        start
-      ),
-      nil
-  end
-  -- `found` is <project_root>/.maxa/runtime.yaml; project root is the dir that *contains*
-  -- the `.maxa/` marker directory, i.e. two levels up from the yaml file.
-  local maxa_dir = found:parent()
-  local root = maxa_dir:parent():absolute()
-  return root, nil, tostring(found) -- Path.__tostring yields the absolute path
-end
-
---- Recursively walk a parsed table looking for literal secret values under the declared
---- secret keys. `extensions` is namespaced and forward-compatible, so secret keys under
---- it are still checked (defense in depth). Returns the offending dotted path or nil.
----@param node table
+--- Recursively search for a literal credential under `node`.
+---@param node table|unknown
 ---@param path string dotted path for diagnostics
----@return string? offending_path
+---@return string|nil found_path first path carrying a literal secret value
 local function find_secret(node, path)
   if type(node) ~= "table" then
     return nil
   end
   for k, v in pairs(node) do
+    local p = path == "" and tostring(k) or (path .. "." .. tostring(k))
     if type(k) == "string" and M.SECRET_KEYS[k] and type(v) == "string" and v ~= "" then
-      return (path == "" and k or (path .. "." .. k))
+      return p
     end
-    if type(v) == "table" then
-      local found = find_secret(v, path == "" and tostring(k) or (path .. "." .. tostring(k)))
-      if found then
-        return found
-      end
+    local found = find_secret(v, p)
+    if found then
+      return found
     end
   end
   return nil
 end
 
---- TinyYaml decodes YAML `null`/`~` scalars to its `yaml.null` marker (a Null-class
---- instance whose `tostring` is "yaml.null"; see config/yaml.lua contract notes), so
---- scalar-typed fields carrying the marker mean "absent". Frozen snapshot proxies
---- (M.freeze) have no raw keys and therefore look empty to `next`/`vim.tbl_isempty`;
---- they are real values and must never count as null.
----@param v any
----@return boolean
-local function is_null_marker(v)
-  if type(v) ~= "table" then
-    return false
+--- Check a provider definition's cross-field constraints (protocol enum,
+--- capability matrix, env-name references, structure). Fail-closed on any
+--- violation; returns the first error.
+---@param pid string provider id (diagnostics)
+---@param def table provider definition
+---@return table|nil err typed error on failure
+local function check_provider_definition(pid, def)
+  if type(def) ~= "table" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, ("provider %q: definition must be a table"):format(tostring(pid)))
   end
-  -- tinyyaml null marker: Null-class instance (tostring == "yaml.null").
-  local mt = getmetatable(v)
-  if mt and mt.__tostring and tostring(v) == "yaml.null" then
-    return true
+  if type(def.protocol) ~= "string" or not vim.tbl_contains(M.PROTOCOLS, def.protocol) then
+    return M.error(
+      schema.ERROR.INVALID_ARGUMENT,
+      ("provider %q: protocol must be one of %s (got %s)"):format(
+        tostring(pid),
+        table.concat(M.PROTOCOLS, ", "),
+        vim.inspect(def.protocol)
+      )
+    )
   end
-  -- Legacy empty-table marker fallback; frozen proxies are real values.
-  if vim.tbl_isempty(v) then
-    return not (mt and mt.__maxa_frozen)
+  if type(def.base_url) ~= "string" or def.base_url == "" then
+    return M.error(
+      schema.ERROR.INVALID_ARGUMENT,
+      ("provider %q: base_url must be a non-empty string"):format(tostring(pid))
+    )
   end
-  return false
-end
-
---- Recursively validate a value against a (possibly composite) field definition.
---- Errors are keyed by dotted path (`provider.definitions.deepseek-chat.protocol`).
----@param field table field definition (scalar types delegate to schema.validate_field)
----@param value any parsed value (may be a tinyyaml null marker = empty table)
----@param prefix string dotted path prefix for error keys
----@param errors table<string,string> accumulating error map
-local function validate_value(field, value, prefix, errors)
-  -- Normalize tinyyaml null markers to nil for scalar-typed fields; empty tables stay
-  -- meaningful for map/struct fields (empty map / empty struct are valid).
-  if is_null_marker(value) and field.type ~= "map" and field.type ~= "struct" then
-    value = nil
+  if
+    def.api_key_env ~= nil and (type(def.api_key_env) ~= "string" or not def.api_key_env:match(M.ENV_NAME_PATTERN))
+  then
+    return M.error(
+      schema.ERROR.INVALID_ARGUMENT,
+      ("provider %q: api_key_env must be an environment variable name (credentials are never literals)"):format(
+        tostring(pid)
+      )
+    )
   end
-  if value == nil then
-    if not field.optional then
-      errors[prefix] = "required field is missing"
-    end
-    return
+  if def.model ~= nil and (type(def.model) ~= "string" or def.model == "") then
+    return M.error(
+      schema.ERROR.INVALID_ARGUMENT,
+      ("provider %q: model must be a non-empty string"):format(tostring(pid))
+    )
   end
-  if field.type == "struct" then
-    if type(value) ~= "table" or (not vim.tbl_isempty(value) and islist(value)) then
-      errors[prefix] = "must be a mapping"
-      return
-    end
-    for k in pairs(value) do
-      if type(k) ~= "string" or field.fields[k] == nil then
-        errors[prefix .. "." .. tostring(k)] = "unknown field (fail-closed)"
+  if
+    def.context_window ~= nil
+    and (
+      type(def.context_window) ~= "number"
+      or math.floor(def.context_window) ~= def.context_window
+      or def.context_window <= 0
+    )
+  then
+    return M.error(
+      schema.ERROR.INVALID_ARGUMENT,
+      ("provider %q: context_window must be a positive integer"):format(tostring(pid))
+    )
+  end
+  -- Capability matrix: declaring `false` for a protocol-native channel conflicts.
+  if type(def.capabilities) == "table" then
+    local native = M.PROTOCOL_NATIVE[def.protocol] or {}
+    for chan, native_on in pairs(native) do
+      if def.capabilities[chan] == false and native_on then
+        return M.error(
+          schema.ERROR.PROTOCOL,
+          ("provider %q: capability %q=false conflicts with protocol %s native channel"):format(
+            tostring(pid),
+            chan,
+            def.protocol
+          )
+        )
       end
     end
-    for k, sub in pairs(field.fields) do
-      validate_value(sub, value[k], prefix .. "." .. k, errors)
-    end
-    return
-  elseif field.type == "map" then
-    if type(value) ~= "table" or (not vim.tbl_isempty(value) and islist(value)) then
-      errors[prefix] = "must be a mapping"
-      return
-    end
-    if field.values then
-      for k, v in pairs(value) do
-        validate_value(field.values, v, prefix .. "." .. tostring(k), errors)
-      end
-    end
-    return
-  elseif field.type == "any" then
-    if type(value) == "table" then
-      errors[prefix] = "must be a scalar"
-      return
-    end
-    if field.validate then
-      local ok, custom = field.validate(value)
-      if not ok then
-        errors[prefix] = (type(custom) == "string" and custom) or "invalid value"
-      end
-    end
-    return
   end
-  local valid, err = schema.validate_field(field, value)
-  if not valid then
-    errors[prefix] = err or ("Not a valid %s"):format(tostring(field.type))
-  end
-end
-
---- Validate a full schema tree (struct/map-with-values/any + scalar fallback).
----@param schema_def table keys -> field definitions
----@param data table value map
----@return nil|table<string,string> nil on success, or dotted-path -> error map
-function M.validate_schema(schema_def, data)
-  local errors = {}
-  for k, field in pairs(schema_def) do
-    validate_value(field, data and data[k], tostring(k), errors)
-  end
-  if next(errors) then
-    return errors
+  if def.request ~= nil and type(def.request) ~= "table" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, ("provider %q: request must be a table"):format(tostring(pid)))
   end
   return nil
 end
 
---- Cross-field provider checks that run after structural validation:
----   * a present `provider` block must name a `default` that exists in `definitions`;
----   * every definition's declared `capabilities` must not disable a protocol-native
----     channel (provider-contract capability matrix).
----@param provider any parsed provider block (may be a tinyyaml null marker)
----@return table<string,string> dotted-path -> error map (empty on success)
-local function check_provider_cross_fields(provider)
-  local errors = {}
-  if provider == nil or is_null_marker(provider) then
-    return errors
+--- Built-in protocol providers (mock/echo) live in the protocol registry, not in
+--- `provider.definitions`. They are always valid `provider.default` targets.
+M.BUILTIN_PROVIDERS = { mock = true, echo = true }
+
+--- Check the `provider` block cross-field constraints: `default` must be a built-in
+--- provider or exist in `definitions`; every definition must pass
+--- `check_provider_definition`. `definitions` may be empty (pure built-in mode).
+---@param provider table|nil provider block
+---@return table|nil err
+local function check_provider_block(provider)
+  if type(provider) ~= "table" then
+    return M.error(
+      schema.ERROR.INVALID_ARGUMENT,
+      "provider block must be a table (LazyVim opts `provider = { default, definitions }`)"
+    )
   end
-  local defs = provider.definitions or {}
-  if type(defs) ~= "table" or vim.tbl_isempty(defs) then
-    errors["provider.definitions"] = "must be a non-empty mapping when the provider block is present"
-    return errors
+  if type(provider.definitions) ~= "table" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "provider.definitions must be a table")
+  end
+  local ids = {}
+  for pid, def in pairs(provider.definitions) do
+    ids[#ids + 1] = pid
+    local err = check_provider_definition(pid, def)
+    if err then
+      return err
+    end
   end
   if type(provider.default) ~= "string" or provider.default == "" then
-    errors["provider.default"] = "required when the provider block is present (must name a definitions entry)"
-  elseif defs[provider.default] == nil then
-    errors["provider.default"] = ("%q is not defined in provider.definitions"):format(tostring(provider.default))
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "provider.default must be a non-empty string")
   end
-  for id, def in pairs(defs) do
-    if type(def) == "table" and type(def.protocol) == "string" and type(def.capabilities) == "table" then
-      local native = M.PROTOCOL_NATIVE[def.protocol] or {}
-      for cap, declared in pairs(def.capabilities) do
-        if native[cap] and declared == false then
-          errors[("provider.definitions.%s.capabilities.%s"):format(tostring(id), tostring(cap))] = ("conflict: %q always provides %q; declaring false is invalid (protocol capability matrix)"):format(
-            def.protocol,
-            cap
-          )
-        end
-      end
-    end
-  end
-  return errors
-end
-
---- A loaded config snapshot. Wrap the raw validated data in a frozen view plus the
---- evidence record; immutable thereafter.
-----------------------------------------------------------------------------------------
-local Snapshot = {}
-Snapshot.__index = Snapshot
-
-function Snapshot:get(key)
-  if key == nil then
-    return self._view
-  end
-  return raw_get(self._view, key)
-end
-
-function Snapshot:data()
-  return self._view
-end
-
-function Snapshot:source()
-  return self._evidence
-end
-
-function Snapshot:to_debug()
-  return { data = self._view, source = self._evidence }
-end
-
---- Load and freeze `.maxa/runtime.yaml` for a resolved project root.
----
---- Returns a `Snapshot` on success, or `nil, error` on any failure (missing file, YAML
---- malformed, schema invalid, unknown core field, provider cross-field violation, or
---- literal secret). Never falls back to the development mother repository's `.supermax/`.
----@param project_root string resolved project root (use find_project_root first, or pass
----   the caller's CWD and let this function resolve it).
----@param opts? table { resolve_root = boolean } when true (default), treat `project_root`
----   as a starting point and resolve upward via `find_project_root`.
----@return table|nil snapshot
----@return table|nil err typed error (schema.new_error) on failure
-function M.load(project_root, opts)
-  opts = opts or {}
-  local root = project_root
-  local found_yaml
-  if opts.resolve_root ~= false then
-    local r, rerr, fy = M.find_project_root(project_root)
-    if not r then
-      return nil, M.error(schema.ERROR.INVALID_ARGUMENT, rerr)
-    end
-    root = r
-    found_yaml = fy
-  else
-    found_yaml = root .. "/" .. M.RUNTIME_YAML
-  end
-  local stat = vim.uv.fs_stat(found_yaml)
-  if not stat or stat.type ~= "file" then
-    return nil,
-      M.error(
-        schema.ERROR.INVALID_ARGUMENT,
-        ("config.load: missing configuration file %q (fail-closed; .supermax/ is never used)"):format(found_yaml)
-      )
-  end
-  local fh = assert(io.open(found_yaml, "rb"))
-  local body = fh:read("*a")
-  fh:close()
-  if type(body) ~= "string" or body == "" then
-    return nil, M.error(schema.ERROR.INVALID_ARGUMENT, "config.load: empty or unreadable .maxa/runtime.yaml")
-  end
-
-  -- Decode (fail-closed: nil + err means malformed YAML).
-  local ok_yml, data = pcall(yaml.decode, body)
-  if not ok_yml then
-    return nil,
-      M.error(schema.ERROR.PROTOCOL, "config.load: yaml decode error -- " .. tostring(data), { path = found_yaml })
-  end
-  if data == nil and ok_yml then
-    return nil, M.error(schema.ERROR.PROTOCOL, "config.load: yaml decode failed (nil)", { path = found_yaml })
-  end
-  if type(data) ~= "table" then
-    return nil,
-      M.error(schema.ERROR.PROTOCOL, "config.load: .maxa/runtime.yaml must decode to a mapping", { path = found_yaml })
-  end
-
-  -- Unknown core fields (fail-closed): only schema keys + `extensions` are allowed.
-  local unknown = {}
-  for k in pairs(data) do
-    if type(k) == "string" and M.runtime_schema[k] == nil then
-      unknown[#unknown + 1] = k
-    end
-  end
-  if #unknown > 0 then
-    table.sort(unknown)
-    return nil,
-      M.error(
-        schema.ERROR.PROTOCOL,
-        ("config.load: unknown core field(s) in %q: %s (fail-closed; allowed: schema_version/project_id/provider/history/orchestrator/ui/skills/mcp/status/extensions)"):format(
-          found_yaml,
-          table.concat(unknown, ", ")
-        ),
-        { path = found_yaml, unknown = unknown }
-      )
-  end
-
-  -- Credential guard (fail-closed; credentials only ever enter by name, never as literals).
-  local secret_path = find_secret(data, "")
-  if secret_path then
-    return nil,
-      M.error(
-        schema.ERROR.PROTOCOL,
-        ("config.load: literal credential value detected at %q; credentials must be supplied only via read-only env vars referenced by name"):format(
-          secret_path
-        ),
-        { path = found_yaml, secret_path = secret_path }
-      )
-  end
-
-  -- Structural schema validation (recursive: struct/map-values/any + scalar types).
-  local verr = M.validate_schema(M.runtime_schema, data)
-  if verr then
-    return nil,
-      M.error(
-        schema.ERROR.PROTOCOL,
-        "config.load: invalid .maxa/runtime.yaml -- " .. vim.inspect(verr),
-        { path = found_yaml }
-      )
-  end
-
-  -- Cross-field provider checks (default existence + protocol capability matrix).
-  local xerr = check_provider_cross_fields(data.provider)
-  if next(xerr) then
-    return nil,
-      M.error(
-        schema.ERROR.PROTOCOL,
-        "config.load: invalid .maxa/runtime.yaml -- " .. vim.inspect(xerr),
-        { path = found_yaml }
-      )
-  end
-
-  local evidence = {
-    source = M.RUNTIME_YAML,
-    config_path = found_yaml,
-    project_root = root,
-    content_hash = fnv1a(body),
-    schema_version = data.schema_version,
-    loaded_at = os.time(),
-  }
-
-  local snap = setmetatable({}, Snapshot)
-  snap._view = M.freeze(data)
-  snap._evidence = evidence
-  snap._config_path = found_yaml
-  return snap, nil
-end
-
---- Convenience: `get(snapshot, key)` top-level helper mirroring the instance method.
----@param snapshot table a Snapshot returned by M.load
----@param key string|nil dotted key (`.` for nested) or nil for the whole data
----@return any
-function M.get(snapshot, key)
-  if type(snapshot) ~= "table" or not snapshot.get then
+  if M.BUILTIN_PROVIDERS[provider.default] then
     return nil
   end
-  return snapshot:get(key)
+  if not provider.definitions[provider.default] then
+    if #ids == 0 then
+      return M.error(
+        schema.ERROR.INVALID_ARGUMENT,
+        ("provider.default %q is not a built-in provider (mock/echo) and no definitions are declared"):format(
+          provider.default
+        )
+      )
+    end
+    return M.error(
+      schema.ERROR.INVALID_ARGUMENT,
+      ("provider.default %q does not exist in definitions (known: %s)"):format(
+        provider.default,
+        table.concat(ids, ", ")
+      )
+    )
+  end
+  return nil
+end
+
+--- Validate the effective (merged) configuration tree. Fail-closed:
+---   * unknown top-level keys (except `extensions`) are configuration errors;
+---   * literal credentials anywhere are rejected (only `api_key_env` references);
+---   * provider block cross-field constraints (protocol/capabilities/default).
+---@param cfg table merged configuration tree
+---@return table|nil err typed error on failure
+local function validate_config(cfg)
+  if type(cfg) ~= "table" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "configure: opts must merge into a table")
+  end
+  for k in pairs(cfg) do
+    if type(k) == "string" and not vim.tbl_contains(M.CORE_KEYS, k) then
+      return M.error(
+        schema.ERROR.INVALID_ARGUMENT,
+        ("configure: unknown top-level key %q (known: %s)"):format(k, table.concat(M.CORE_KEYS, ", "))
+      )
+    end
+  end
+  local secret_path = find_secret(cfg, "")
+  if secret_path then
+    return M.error(
+      schema.ERROR.INVALID_ARGUMENT,
+      ("configure: literal credential at %q (use api_key_env env-name references)"):format(secret_path)
+    )
+  end
+  local err = check_provider_block(cfg.provider)
+  if err then
+    return err
+  end
+  return nil
+end
+
+--- Merge defaults + user opts into the effective configuration tree and validate it.
+--- This is the single configuration entry used by `maxa.setup(opts)`; LazyVim merges
+--- multiple `opts` tables before calling setup, so this receives the final user opts.
+---@param defaults table bundled defaults (lua/maxa/init.lua `M.defaults`)
+---@param opts? table user configuration (LazyVim opts)
+---@return table merged effective config
+---@return table|nil err typed error on failure (effective is NOT updated on failure)
+function M.configure(defaults, opts)
+  local merged = vim.tbl_deep_extend("force", {}, defaults or {}, opts or {})
+  local err = validate_config(merged)
+  if err then
+    return nil, err
+  end
+  M.effective = merged
+  return merged, nil
+end
+
+--- Resolve a config key from the effective tree (dotted path).
+---@param key? string dotted key path (nil returns the whole tree)
+---@return unknown value
+function M.get(key)
+  if type(M.effective) ~= "table" then
+    return nil
+  end
+  if key == nil then
+    return M.effective
+  end
+  local cur = M.effective
+  for part in tostring(key):gmatch("[^.]+") do
+    if type(cur) ~= "table" then
+      return nil
+    end
+    cur = cur[part]
+  end
+  return cur
 end
 
 --- Normalize a provider base_url: strip trailing slashes (aligns with the gateway
---- factory behavior in `~/.config/nvim/lua/plugins/ai.lua` `normalize_gateway_base_url`).
+--- factory behavior in `lua/plugins/ai.lua` `normalize_gateway_base_url`).
 ---@param url string
 ---@return string
 function M.normalize_base_url(url)
@@ -719,80 +326,55 @@ end
 
 --- Resolve a provider definition into a normalized runtime record.
 ---
---- Reads from either a `Snapshot` (returned by M.load) or a raw validated table. The
---- snapshot itself is never mutated and never contains credential values; the resolved
---- env key value is fetched at call time and lives only in the returned record.
+--- Reads from a merged configuration tree (returned by `M.configure`/`M.effective`).
+--- The config tree is never mutated and never contains credential values; the
+--- resolved env key value is fetched at call time and lives only in the returned record.
 ---
----@param config table Snapshot (or raw validated config data)
+---@param cfg table merged configuration tree (e.g. M.effective)
 ---@param id? string provider id; defaults to `provider.default`
 ---@return table|nil record normalized provider record
 ---@return table|nil err typed error (schema.new_error) on failure
-function M.resolve_provider(config, id)
-  local data = config
-  if type(config) == "table" and config.get then
-    data = config:get(nil)
-  end
-  -- Unwrap frozen proxies once: vim.tbl_isempty/tbl_keys/tbl_count and pairs must see
-  -- the real tree, otherwise provider.definitions looks empty (raw next() over a proxy).
-  data = M.unfreeze(data)
-  local provider = data and data.provider
-  if provider == nil or is_null_marker(provider) then
+function M.resolve_provider(cfg, id)
+  if type(cfg) ~= "table" or type(cfg.provider) ~= "table" then
     return nil,
       M.error(
         schema.ERROR.INVALID_ARGUMENT,
-        "config.resolve_provider: no provider block configured (need .maxa/runtime.yaml provider{default, definitions})"
+        "resolve_provider: no provider block configured (LazyVim opts `provider = { default, definitions }`)"
       )
   end
-  local defs = provider.definitions
-  if type(defs) ~= "table" or vim.tbl_isempty(defs) then
-    return nil, M.error(schema.ERROR.INVALID_ARGUMENT, "config.resolve_provider: provider.definitions is empty")
+  local provider = cfg.provider
+  if type(provider.definitions) ~= "table" then
+    return nil, M.error(schema.ERROR.INVALID_ARGUMENT, "resolve_provider: provider.definitions must be a table")
   end
   local pid = id or provider.default
   if type(pid) ~= "string" or pid == "" then
-    return nil,
-      M.error(
-        schema.ERROR.INVALID_ARGUMENT,
-        "config.resolve_provider: no provider id given and provider.default is unset"
-      )
+    return nil, M.error(schema.ERROR.INVALID_ARGUMENT, "resolve_provider: provider id must be a non-empty string")
   end
-  local def = defs[pid]
+  local def = provider.definitions[pid]
   if not def then
-    local known = vim.tbl_keys(defs)
-    table.sort(known)
+    local known = {}
+    for k in pairs(provider.definitions) do
+      known[#known + 1] = k
+    end
     return nil,
       M.error(
         schema.ERROR.INVALID_ARGUMENT,
-        ("config.resolve_provider: unknown provider %q (defined: %s)"):format(pid, table.concat(known, ", "))
+        ("resolve_provider: unknown provider %q (known: %s)"):format(pid, table.concat(known, ", "))
       )
   end
-
-  -- Merge protocol defaults with declared capabilities (declared wins).
-  local capabilities = {}
-  for k, v in pairs(M.PROTOCOL_DEFAULTS[def.protocol] or {}) do
-    capabilities[k] = v
+  local err = check_provider_definition(pid, def)
+  if err then
+    return nil, err
   end
-  for k, v in pairs(def.capabilities or {}) do
-    capabilities[k] = v
-  end
-
-  -- Normalize request options (tinyyaml null markers -> nil).
-  -- NOTE: never use `cond and nil or v` here — Lua evaluates `nil or v` to `v`,
-  -- so a true null marker would be kept. Use an explicit branch.
-  local request = {}
-  for k, v in pairs(def.request or {}) do
-    if is_null_marker(v) then
-      request[k] = nil
-    else
-      request[k] = v
-    end
-  end
-
+  local protocol = def.protocol
+  local capabilities = vim.tbl_deep_extend("force", {}, M.PROTOCOL_DEFAULTS[protocol] or {}, def.capabilities or {})
+  local request = vim.tbl_deep_extend("force", {}, def.request or {})
   local record = {
     id = pid,
-    protocol = def.protocol,
+    protocol = protocol,
     base_url = M.normalize_base_url(def.base_url),
     api_key_env = def.api_key_env,
-    -- Resolved at call time; never persisted, never part of the snapshot.
+    -- Resolved at call time; never persisted, never part of any artifact.
     api_key = def.api_key_env and os.getenv(def.api_key_env) or nil,
     model = def.model,
     -- Optional provider context window (tokens). nil when undeclared: the
@@ -802,13 +384,10 @@ function M.resolve_provider(config, id)
     request = request,
     adapter = nil,
   }
-
   -- Bind the protocol adapter when the registry has one registered for this protocol.
-  -- Real adapters register in W4-W7 (`protocol.register_adapter`); until then the
-  -- record carries a nil adapter and callers can bind later via `record:bind()`.
   local ok, proto = pcall(require, "maxa.runtime.protocol")
   if ok and type(proto) == "table" and type(proto.get_adapter) == "function" then
-    record.adapter = proto.get_adapter(def.protocol)
+    record.adapter = proto.get_adapter(protocol)
   end
   record.bind = function(self, adapter_instance)
     record.adapter = adapter_instance
@@ -817,5 +396,116 @@ function M.resolve_provider(config, id)
   return record, nil
 end
 
-M.Snapshot = Snapshot
+--- Find the project root by walking upward from `start` looking for a `.maxa/`
+--- directory (state file location / project marker). Never falls back to the
+--- development mother repository's `.supermax/`.
+---@param start? string starting directory (default: current working directory)
+---@return string|nil root absolute project root containing `.maxa/`
+---@return string|nil err when no `.maxa/` marker is found upward
+function M.find_project_root(start)
+  local dir = vim.fn.fnamemodify(start or vim.fn.getcwd(), ":p")
+  for _ = 1, 64 do
+    if vim.uv.fs_stat(dir .. "/" .. M.STATE_DIR) then
+      return dir, nil
+    end
+    local parent = vim.fn.fnamemodify(dir, ":h")
+    if parent == dir then
+      break
+    end
+    dir = parent
+  end
+  return nil,
+    M.error(
+      schema.ERROR.INVALID_ARGUMENT,
+      "find_project_root: no .maxa/ project marker found upward from " .. tostring(start or vim.fn.getcwd())
+    )
+end
+
+--- Load the project runtime state (`<root>/.maxa/state.yaml`). Missing state file
+--- is NOT an error: it means the project is not initialized yet.
+---@param root string project root
+---@return table|nil state decoded state mapping
+---@return table|nil err typed error on unreadable/invalid state
+function M.load_state(root)
+  local path = root .. "/" .. M.STATE_YAML
+  if not vim.uv.fs_stat(path) then
+    return nil, nil
+  end
+  local fh = assert(io.open(path, "rb"))
+  local body = fh:read("*a")
+  fh:close()
+  local ok, data = pcall(yaml.decode, body)
+  if not ok then
+    return nil, M.error(schema.ERROR.CONFIGURATION, "load_state: state.yaml decode failed", { path = path })
+  end
+  if type(data) ~= "table" then
+    return nil, M.error(schema.ERROR.CONFIGURATION, "load_state: state.yaml must decode to a mapping", { path = path })
+  end
+  return data, nil
+end
+
+--- Minimal YAML mapping serializer for `.maxa/state.yaml` (生态缺位最小替代：
+--- the runtime only ever writes this controlled flat state mapping; TinyYaml is
+--- decode-only). Supports scalar values and one level of nested mappings.
+---@param state table state mapping (flat scalars + optional one-level nested maps)
+---@return string yaml text
+local function encode_state(state)
+  local lines = {}
+  local function scalar(v)
+    if v == nil then
+      return "null"
+    end
+    if type(v) == "boolean" then
+      return v and "true" or "false"
+    end
+    if type(v) == "number" then
+      return tostring(v)
+    end
+    local s = tostring(v)
+    if s:find("[%s:#]") or s == "" then
+      return ("%q"):format(s)
+    end
+    return s
+  end
+  for k, v in pairs(state) do
+    if type(v) == "table" then
+      lines[#lines + 1] = tostring(k) .. ":"
+      for kk, vv in pairs(v) do
+        lines[#lines + 1] = ("  %s: %s"):format(tostring(kk), scalar(vv))
+      end
+    else
+      lines[#lines + 1] = ("%s: %s"):format(tostring(k), scalar(v))
+    end
+  end
+  table.sort(lines)
+  return table.concat(lines, "\n") .. "\n"
+end
+
+--- Save the project runtime state (`<root>/.maxa/state.yaml`). Creates the
+--- `.maxa/` directory when missing. The state file carries runtime status only
+--- (schema_version/project_id/created/updated/status); configuration lives in
+--- LazyVim opts, never here.
+---@param root string project root
+---@param state table state mapping to persist
+---@return string|nil path written file path
+---@return table|nil err typed error on write failure
+function M.save_state(root, state)
+  if type(state) ~= "table" then
+    return nil, M.error(schema.ERROR.INVALID_ARGUMENT, "save_state: state must be a table")
+  end
+  local dir = root .. "/" .. M.STATE_DIR
+  vim.fn.mkdir(dir, "p")
+  local path = dir .. "/state.yaml"
+  local fh, ferr = io.open(path, "wb")
+  if not fh then
+    return nil, M.error(schema.ERROR.PERSISTENCE, ("save_state: cannot open %s: %s"):format(path, tostring(ferr)))
+  end
+  local ok, werr = pcall(fh.write, fh, encode_state(state))
+  fh:close()
+  if not ok then
+    return nil, M.error(schema.ERROR.PERSISTENCE, ("save_state: write failed: %s"):format(tostring(werr)))
+  end
+  return path, nil
+end
+
 return M

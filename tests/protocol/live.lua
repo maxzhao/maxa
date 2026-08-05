@@ -2,10 +2,10 @@
 --- Phase-1 W9 live validation: real DeepSeek round-trips over the three
 --- supported protocols (openai_chat / openai_responses / anthropic_messages).
 ---
---- Provider definitions come from /home/maxzhao/maxa/.maxa/runtime.yaml
---- (api_key_env=DEEPSEEK_TEST_KEY). The key is read from <root>/.env at
---- runtime, set into the process env for resolve_provider, and NEVER printed
---- or persisted. Gemini is skipped (DeepSeek does not support it).
+--- Provider definitions come from the mother-repository LazyVim opts
+--- (lua/plugins/maxa.lua; api_key_env=DEEPSEEK_TEST_KEY). The key is read from
+--- <root>/.env at runtime, set into the process env for resolve_provider, and
+--- NEVER printed or persisted. Gemini is skipped (DeepSeek does not support it).
 ---
 --- Per protocol: one non-streamed request (transport.post stream=false,
 --- adapter:parse_nonstream) and one streamed request (adapter:stream with
@@ -123,17 +123,19 @@ local cases = {
   { id = "deepseek-anthropic", label = "anthropic_messages", text = "Reply with exactly: OK" },
 }
 
+-- Provider definitions come from the mother-repository LazyVim opts
+-- (lua/plugins/maxa.lua), merged over the bundled defaults (LazyVim config model).
+local cfg, cerr = config.configure(require("maxa").defaults, require("plugins.maxa")[1].opts or {})
 for _, spec in ipairs(cases) do
   local notes = {}
   local ok = true
-  local snap, lerr = config.load(ROOT, { resolve_root = false })
   local record
-  if not snap then
+  if not cfg then
     ok = false
-    notes[#notes + 1] = "resolve: config.load failed: " .. tostring(lerr and lerr.message)
+    notes[#notes + 1] = "resolve: config.configure failed: " .. tostring(cerr and cerr.message)
   else
     local rerr
-    record, rerr = config.resolve_provider(snap, spec.id)
+    record, rerr = config.resolve_provider(cfg, spec.id)
     if not record then
       ok = false
       notes[#notes + 1] = "resolve_provider failed: " .. tostring(rerr and rerr.message)

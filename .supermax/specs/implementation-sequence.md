@@ -52,7 +52,7 @@ Gate: schemas and harness pass without compatibility plugins installed.
 
 ## Phase 1 — Configuration and normalized model
 
-- [ ] Implement project-root binding and immutable `.maxa/runtime.yaml` snapshot; reject/fail closed rather than falling back to the development `.supermax/`.
+- [x] Implement LazyVim-opts configuration (defaults in `lua/maxa/init.lua` `M.defaults` + user opts deep-merge, fail-closed validation: unknown keys/protocol enum/capability matrix/credential guard) and `.maxa/state.yaml` runtime state read/write (`config.load_state`/`save_state`); reject/fail closed rather than falling back to the development `.supermax/`. (No `.maxa/runtime.yaml` layer: configuration is opts, not project yaml.)
 - [ ] Implement `.maxa/mcp/servers.yaml` validation/substitution/redaction.
 - [ ] Implement runtime/project system prompt composition and source manifest.
 - [ ] Implement Skill table/SYSTEM slot discovery with deterministic ordering and failures.

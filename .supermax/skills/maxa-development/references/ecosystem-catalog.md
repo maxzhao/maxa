@@ -8,16 +8,16 @@ runtime. Read this before writing or keeping anything generic.
 | Horizontal capability | Ecosystem facility | maxa usage |
 | --- | --- | --- |
 | Deep copy | `vim.deepcopy` (builtin) | `conversation` message copies |
-| YAML decode | vendored TinyYaml (`config/vendor/tinyyaml.lua`, MIT) | `config/yaml.lua` `.maxa/runtime.yaml` |
+| YAML decode | vendored TinyYaml (`config/vendor/tinyyaml.lua`, MIT) | `config/yaml.lua` `.maxa/state.yaml` |
 | Async coroutines | `plenary.async` | `protocol/init.lua` async stream driver |
 | Async sleep / scheduler | `plenary.async.util.sleep`, `.scheduler` | `protocol/init.lua` drive leaves |
-| Project root / path walk | `plenary.path` (`find_upwards`, `parent`, `absolute`) | `config/init.lua` project-root binding |
+| Project root / path walk | builtin `vim.uv.fs_stat` + `vim.fn.fnamemodify` (simple upward walk) | `config/init.lua` `find_project_root` (`.maxa/` marker) |
 | Floating-window/UI layout | `snacks` (`snacks.layout`, `snacks.win`) | `host/nvim/init.lua` Chat view |
 | Serialization | `vim.json` (builtin) | `conversation` to_json/from_json |
 | Table utils | `vim.islist` / `vim.tbl_islist` / `vim.tbl_deep_extend` | schema / config merge |
 | Monotonic clock | `vim.uv.hrtime` | `events/init.lua` emitted_at |
-| File stat | `vim.uv.fs_stat` | `config` load |
-| File read | `io.open` (`read("*a")`) | `config` load |
+| File stat | `vim.uv.fs_stat` | `config` state.yaml check / find_project_root |
+| File read | `io.open` (`read("*a")`) | `config` state.yaml load |
 | Command / keymap | `vim.api.nvim_create_user_command`, `vim.keymap.set` | `host/nvim` |
 | Buffer line IO / focus | `nvim_buf_get_lines/set_lines`, `nvim_set_current_win` | `host/nvim` render / input |
 | Plugin assembly | `lazy.nvim` spec (`dir`, `cmd`, `keys`, `dependencies`, `opts`) | `lua/plugins/maxa.lua` |

@@ -104,7 +104,7 @@ adapter.capabilities = { vision = true, tools = true, reasoning = true }
 adapter.ENDPOINT = "/responses"
 
 --- Default model used when provider options do not declare one (phase-1 dev
---- default; real deployments resolve the model through config/runtime.yaml).
+--- default; real deployments resolve the model through LazyVim opts provider definitions).
 adapter.DEFAULT_MODEL = "deepseek-v4-flash"
 
 --- Monotonic per-process request identity (stable within the process; the

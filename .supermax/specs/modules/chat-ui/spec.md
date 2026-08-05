@@ -64,7 +64,7 @@ View/input/render fixtures are normative in `../../runtime-fixture-contract.md`.
 | Keymaps/actions 为 registry entries | `M.KEYMAPS` + `View:_register_keymaps`（12 项，chat/input buffer-local） | `tests/ui/actions.lua` A/B/D |
 | Lualine/spinner 渲染分离 | `host/nvim/status.lua`（只读 `View:projection` + `lualine_component` + 时钟派生 spinner 帧） | `tests/ui/status.lua` A/B/C |
 | 输入区（一体式，无独立输入窗） | 单 chat buffer：输入头 + 用户区在渲染区之后（`_render_end` 边界，`render.apply` 渲染区 diff；`View:_init_input_area`/`_submit_from_input`/`_history_nav`/`_attach_selection`；多行输入 float 自适应） | `tests/ui/input.lua` A/B/C + `tests/ui/render.lua` A/B/E |
-| ui.show_reasoning 配置接线 | `maxa.setup` 读 `.maxa/runtime.yaml` ui 块 → `host.set_defaults`（unfreeze 解包） | `tests/ui/config.lua` A/B |
+| ui.show_reasoning 配置接线 | LazyVim opts `ui.show_reasoning` 经 `config.configure` 合并校验 → `host.set_defaults`（默认值在 `lua/maxa/init.lua` `M.defaults.ui`） | `tests/ui/config.lua` A/B |
 
 未落地（依赖后续阶段，plan.md 已标注）：工具输出折叠与结果详情卡片（阶段3 工具运行时）；
 会话列表/切换（阶段4）；layout 非 float 形态与 input revision 完整化（阶段5 收口）。

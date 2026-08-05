@@ -1,0 +1,11 @@
+# maxa runtime state（运行状态，非配置层）。
+# 配置遵循 LazyVim 规则：默认值统一在 lua/maxa/init.lua（M.defaults，注释即文档），
+# 用户覆盖在各自项目的 lua/plugins/maxa.lua opts 中。
+# 扩展类内容遵循 CodeCompanion 文件约定：.maxa/mcp/servers.yaml（项目 MCP 声明）、
+# .maxa/skills/（项目 Skills）。本文件是 .maxa/ 下唯一的状态文件（角色类似
+# SuperMax .supermax/_meta.yaml），由 maxa.runtime.config load_state/save_state 读写。
+schema_version: 1
+project_id: maxa-dev
+created: 2026-08-05
+updated: 2026-08-05
+status: active

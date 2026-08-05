@@ -54,9 +54,10 @@ test-protocol: (setup)
 # transport with a fake curl; no network). Offline and deterministic.
 test-protocol-unit: (setup)
     NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local s='{{root}}/tests/protocol/unit_sse.lua' local a=pcall(dofile,s) if not a then vim.cmd('cq') return end local t='{{root}}/tests/protocol/unit_transport.lua' local b=pcall(dofile,t) vim.cmd(b and 'qa!' or 'cq') end, 2000)"
-# Headless W3 config verification: full runtime.yaml schema (struct/map/any), provider
-# cross-field checks (default existence, protocol capability matrix), credential guard,
-# resolve_provider normalization + adapter bind interface. Offline; no network or key.
+# Headless W3 config verification: LazyVim opts merge/validation (defaults +
+# user opts), provider cross-field checks (default existence, protocol capability
+# matrix), credential guard, resolve_provider normalization + adapter bind
+# interface, state.yaml round-trip. Offline; no network or key.
 test-config: (setup)
     NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/config/verify.lua' local ok,res=pcall(dofile,d) if not (ok and res) then vim.cmd('cq') return end vim.cmd('qa!') end, 2000)"
 
@@ -92,8 +93,8 @@ test-ui-status: (setup)
     NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/ui/status.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
 
 # Headless chat-ui config wiring validation (phase 1.5 subpackage 3.6): default
-# setup safety + ui.show_reasoning flow from a temp .maxa/runtime.yaml into host
-# view defaults. Offline; no network or key.
+# setup safety + ui.show_reasoning flow from LazyVim opts through config.configure
+# into host view defaults. Offline; no network or key.
 test-ui-config: (setup)
     NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/ui/config.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
 

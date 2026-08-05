@@ -1,9 +1,16 @@
 ---
 title: CodeCompanion Reverse Spec Change Log
 created: 2026-08-01
-updated: 2026-08-03
+updated: 2026-08-05
 type: log
 ---
+## 2026-08-05 — Configuration model reworked to LazyVim opts (no `.maxa/runtime.yaml` layer)
+- User decision: maxa configuration follows LazyVim plugin rules — defaults unified in `lua/maxa/init.lua` `M.defaults` (comments are the documentation; `docs/` config docs removed), users override via `lua/plugins/maxa.lua` `opts`. The `.maxa/runtime.yaml` project-configuration layer is removed.
+- `.maxa/` now carries exactly one state file, formally named `state.yaml` (yaml format; role like SuperMax's `.supermax/_meta.yaml`): `schema_version`/`project_id`/`created`/`updated`/`status`, read/written by `maxa.runtime.config` (`load_state`/`save_state`); `_meta.yaml` and `runtime.yaml` deleted.
+- Extension content follows CodeCompanion file conventions (not opts): `.maxa/mcp/servers.yaml` (project MCP declarations) and `.maxa/skills/` (project Skills) remain; `.maxa/system.md`/`.maxa/prompts/`/`.maxa/history/` unchanged.
+- Runtime changes: `lua/maxa/runtime/config/init.lua` rewritten as opts merge/validation (`configure`/`effective`/`get`/`resolve_provider` + state.yaml IO; schema-table/freeze/unfreeze/load removed); `lua/maxa/init.lua` `M.defaults` expanded with comments; `lua/plugins/maxa.lua` opts now carries the deepseek verification providers; `host/nvim` resolves providers via `config.effective`.
+- Tests updated to the opts model (`tests/config/verify.lua` rewritten incl. state.yaml round-trip; `tests/w8/chain.lua`, `tests/state/context-stop-command.lua`, `tests/ui/config.lua`, `tests/protocol/live.lua`, `tests/w10/ui_chain.lua`); validation green: smoke, test-config, test-ui-config, test-state (33), w8 chain.
+- Specs updated: `supermax-configuration/spec.md` (opts config tree + state.yaml layout + precedence), `chat-ui/spec.md` (ui wiring row), `implementation-sequence.md` (config item), `plan.md` (config items + removed docs reference), `AGENTS.md` (`.maxa/` layout).
 
 ## 2026-08-03 — Implementation path moved to `lua/maxa/runtime`
 

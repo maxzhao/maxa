@@ -1,3 +1,0 @@
-# maxa 项目元数据（阶段1 验证资产）。
-# supermax_schema_version 供 config schema 检查使用；阶段1 W3 实现校验逻辑。
-supermax_schema_version: 1

@@ -94,7 +94,7 @@
 ---   path -> typed rejection). Armed -> consumed exactly once (triggered).
 ---   Usage unavailable -> fail-closed (arm fails; checks never trigger).
 ---   Orchestrator config (W6): orchestrator.new reads the `orchestrator`
----   section of `.maxa/runtime.yaml` (opts.config snapshot or opts.
+---   section of the effective config (opts.config injection or opts.
 ---   orchestrator_config raw table) with defaults { tool_concurrency = 1,
 ---   watchdog = { enabled=false, timeout_ms=180000, max_retries=3 },
 ---   context_stop = { enabled=false} }. tool_concurrency is parsed but the
@@ -354,8 +354,8 @@ end
 ---   tool_handlers?: table, injected ToolBatch handler table (W4; phase-3
 ---                replaces this with the real registry): name -> { run, cancel,
 ---                mode = "sync"|"async" } (see lua/maxa/runtime/tools/init.lua),
----   config?:      table|nil config Snapshot (.maxa/runtime.yaml) whose
----                `orchestrator` section seeds the orchestrator config (W6),
+---   config?:      table|nil config object whose `orchestrator` section seeds
+---                the orchestrator config (W6; effective LazyVim opts tree),
 ---   orchestrator_config?: table|nil raw orchestrator config table (wins over
 ---                opts.config; merged over ORCHESTRATOR_DEFAULTS) (W6),
 ---   usage_provider?: fun(): table|nil|undefined injectable usage snapshot
@@ -429,7 +429,7 @@ function M.new(opts)
     self:_watchdog_fired(reason)
   end
   -- W6 config-driven context-stop arming: `context_stop: { enabled, target }`
-  -- from `.maxa/runtime.yaml` (or raw orchestrator_config). Arming is
+  -- from the effective config (or raw orchestrator_config). Arming is
   -- fail-closed: an invalid target or unavailable usage keeps the limit
   -- disabled and records the typed error.
   local cs_cfg = self.orchestrator_config.context_stop

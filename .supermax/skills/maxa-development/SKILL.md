@@ -69,7 +69,11 @@ changing shape:
   `{cancel, active}`) is the single adapter surface; add real adapters to it,
   keep mock/echo conformant.
 - Events emit through the bus (`on/emit` + envelope + sequence); only add names.
-- `CONFIG/runtime.yaml` changes must stay fail-closed and unknown-core-key safe.
+- Configuration (LazyVim opts: defaults in `lua/maxa/init.lua` `M.defaults` + user
+  `opts` deep-merge) must stay fail-closed: unknown top-level keys, invalid protocol
+  enums, capability-matrix conflicts and literal credentials are rejected.
+  `.maxa/state.yaml` is runtime state only (formal state file); there is NO
+  `.maxa/runtime.yaml` configuration layer.
 - Keep `import-guard`(guard module) active for the whole runtime and tests.
 
 ## Horizontal catalog

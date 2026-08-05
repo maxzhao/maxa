@@ -1,5 +1,5 @@
 -- filepath: lua/maxa/runtime/config/yaml.lua
---- maxa runtime YAML decode adapter for `.maxa/runtime.yaml`.
+--- maxa runtime YAML decode adapter for `.maxa/state.yaml`.
 ---
 --- This is a thin fail-closed wrapper over the vendored TinyYaml parser
 --- (see ./vendor/tinyyaml.lua). It replaces the previous hand-written YAML
@@ -24,10 +24,10 @@
 ---   * `null`/`~` scalars decode to the `yaml.null` marker (a Null-class table whose
 ---     `tostring` is "yaml.null"), not `nil`. `config/init.lua` treats the marker as
 ---     "absent" for scalar fields via `is_null_marker`; acceptable for
----     `.maxa/runtime.yaml` (schema validation treats empty-map/absent keys
+---     `.maxa/state.yaml` (state validation treats empty-map/absent keys
 ---     similarly); documented in case a later phase needs strict nulls.
 ---   * multi-document YAML with a leading `---` yields an array of documents;
----     `.maxa/runtime.yaml` is a single mapping, so config.load rejects a non-table
+---     `.maxa/state.yaml` is a single mapping, so load_state rejects a non-table
 ---     root via the decode contract.
 -------------------------------------------------------------------------------
 local tinyyaml = require("maxa.runtime.config.vendor.tinyyaml")

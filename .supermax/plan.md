@@ -45,8 +45,11 @@ tags: [supermax, plan, implementation, nvim-runtime]
 
 - **events 事件总线**：类型化 event（event_id/sequence/订阅/派发/失败隔离/幂等）；随功能增全
   case 集合（lifecycle/request/stream/tool/mcp/skill/history/status）。
-- **config 配置**：项目根绑定、`.maxa/runtime.yaml` 不可变快照、校验/脱敏/凭据只读 env、
--  `.maxa/mcp/servers.yaml`、prompt 组合；随功能增全字段（provider/orchestrator/history/ui/mcp/skills/status）。`.supermax/` 只承载本仓库开发治理资料。
+- **config 配置**：遵循 LazyVim 规则 —— 默认值统一在 `lua/maxa/init.lua` `M.defaults`（注释即文档），
+  用户经 `lua/plugins/maxa.lua` `opts` 覆盖，`config.configure` 深合并 + fail-closed 校验（未知顶层键/
+  协议枚举/能力矩阵/凭据只读 env）；`.maxa/state.yaml` 为唯一运行状态文件（正式名，非配置层）；
+  扩展类内容遵循 CodeCompanion 文件约定（`.maxa/mcp/servers.yaml`、`.maxa/skills/`、`.maxa/system.md`、
+  prompt 组合）；随功能增全字段（provider/orchestrator/history/ui/mcp/skills/status）。`.supermax/` 只承载本仓库开发治理资料。
 - **schema 数据模型**：消息 content-part / usage / session / 错误码；随功能增全类型。
 - **conversation 消息模型**：provider 中立角色/内容部件/context item/提交校验。
 - **session + orchestrator 状态机/消息循环**：Session/Request/ToolBatch/View 实体、合法转型、
@@ -66,7 +69,7 @@ tags: [supermax, plan, implementation, nvim-runtime]
 ### 实现
 - [x] 建 `lua/maxa/runtime/{config,protocol,conversation,session,orchestrator,tools,mcp,skills,events,host/nvim,compat}` 目录 + import-guard（禁用 `codecompanion.*`/`mcphub.*`/`lua/util/hooks/*`）
 - [x] events：类型化 event bus 最小模型（event_id/sequence/订阅/派发/失败隔离/幂等）
-- [x] config：项目根绑定 + `.maxa/runtime.yaml` 读取/不可变快照（未知字段报错、凭据只读 env）；禁止回退到母仓库 `.supermax/`
+- [x] config：LazyVim opts 配置模型（`M.defaults` + opts 深合并 + fail-closed 校验：未知顶层键/协议枚举/能力矩阵/凭据只读 env）+ `.maxa/state.yaml` 运行状态读写；无 `.maxa/runtime.yaml` 配置层；禁止回退到母仓库 `.supermax/`
 - [x] schema：消息 content-part / usage / session / 错误码 最小集合
 - [x] mock/echo provider（可回放录制流，可注入 delay/error/cancel）
 - [x] 最小 Chat 视图：打开、输入、流式渲染、stop/close、provider/model 切换 UI
@@ -156,7 +159,7 @@ headless 脚本验证不算人工可审核。此条款为阶段1 gate 必要条�
   W10.2 真实 provider 解析）
 - [x] 状态层（chat-ui-status）——2026-08-05 完成：host/nvim/status.lua lualine/spinner/usage 只读投影（View:projection，渲染分离契约）：lualine + spinner + usage 投影（只读 spine，事件驱动；
   对齐 chat-ui spec 渲染分离契约）
-- [x] config：maxa setup 接线 .maxa/runtime.yaml ui.show_reasoning + ui.layout → host 默认（layout 默认 vertical=右侧半屏分屏，horizontal=底部/float=半宽浮窗可配；headless 断言）
+- [x] config：maxa setup 接线 LazyVim opts ui.show_reasoning + ui.layout（默认值在 `M.defaults.ui`）→ host 默认（layout 默认 vertical=右侧半屏分屏，horizontal=底部/float=半宽浮窗可配；headless 断言）
 
 ### 伴随验证
 - [x] headless 渲染断言（2026-08-05 主会话复跑全绿）：tests/ui/render.lua（markdown extmark/增量 append/follow/virtual text/fold 交互）+ input.lua（intro/历史/visual 注入）+ actions.lua（keymap/导航/选择器/帮助）+ status.lua（投影/spinner/lualine）+ config.lua（ui 接线）
@@ -207,7 +210,7 @@ headless 脚本验证不算人工可审核。此条款为阶段1 gate 必要条�
 > 5. `:MaxaContextStop 10`（或 `+5`）→ 通知 "armed at 10%"；继续对话，上下文用量（本地估算或真实 usage 快照）达到阈值后自动 soft-stop（状态行 "soft-stop requested"）；`:MaxaContextStop off` 解除
 > 6. `:MaxaStop` 仍为立即取消（hard cancel）；`:MaxaProvider mock` 可离线复核（mock 注入工具调用 + soft-stop/context-stop 流程）
 > 7. 全部符合预期 → 人工审核通过，阶段2 gate 成立（headless 证据见上）
-> 配置参考：`docs/runtime-config.md`（全部配置项默认值+功能描述）、`docs/runtime.yaml.example`（可复制模板）
+> 配置参考：`lua/maxa/init.lua` `M.defaults`（默认值 + 注释即文档；无独立 docs 配置文档，`docs/` 已移除）
 **本层 gate**：含工具调用的自动续跑 + soft-stop 操作成功；R-STATE 行为经注入确定性时钟跑通。
 
 ---

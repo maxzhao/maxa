@@ -6,8 +6,8 @@
 --
 -- Scenarios:
 --   A-C. For each of deepseek-chat / deepseek-responses / deepseek-anthropic:
---         set_provider(name) resolves through .maxa/runtime.yaml and binds the
---         real adapter; one real message is submitted through the View; the
+--         set_provider(name) resolves through the effective LazyVim opts config
+--         and binds the real adapter; one real message is submitted through the View; the
 --         stream must reach exactly one terminal event with status completed,
 --         the assistant item must carry a non-empty text part, the normalized
 --         usage snapshot must be non-empty, and the view must have shown busy
@@ -86,6 +86,16 @@ end
 
 local host = require("maxa.runtime.host.nvim")
 local events = require("maxa.runtime.events")
+-- W10.2: real providers come from the mother-repository LazyVim opts
+-- (lua/plugins/maxa.lua), merged over bundled defaults by maxa.setup; the
+-- effective config (config.effective) feeds View:set_provider. Dev-asset
+-- credential injection reads <root>/.env for DEEPSEEK_TEST_KEY (never persisted).
+local maxa_mod = require("maxa")
+local spec = require("plugins.maxa")[1]
+local ok_setup, setup_err = pcall(maxa_mod.setup, spec.opts or {})
+if not ok_setup then
+  error("w10/ui_chain.lua: maxa.setup failed: " .. tostring(setup_err))
+end
 
 local function has_reasoning_fold(lines)
   for _, l in ipairs(lines) do
@@ -103,7 +113,7 @@ local function run_case(provider_id, expect_reasoning)
   local bus = events.new()
   local v = host.new({ provider = "mock", events = bus })
 
-  -- W10.2: set_provider resolves the real provider through .maxa/runtime.yaml.
+  -- W10.2: set_provider resolves the real provider through the effective opts config.
   local ok_set = v:set_provider(provider_id)
   check(ok_set, provider_id .. ": set_provider ok")
   if not ok_set then

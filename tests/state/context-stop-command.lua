@@ -116,49 +116,34 @@ end
 -- F. config: provider context_window schema + record wiring
 --------------------------------------------------------------------------------
 do
-  local tmp = vim.fn.tempname()
-  vim.fn.mkdir(tmp .. "/.maxa", "p")
-  local legal = [[
-schema_version: 1
-project_id: ctxwin-test
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://example.com
-      model: m1
-      context_window: 4096
-]]
-  local f = io.open(tmp .. "/.maxa/runtime.yaml", "w")
-  f:write(legal)
-  f:close()
-  local snap, cerr = config.load(tmp, { resolve_root = false })
-  check(snap ~= nil, "F: legal context_window loads (" .. tostring(cerr and cerr.message or "") .. ")")
-  if snap then
-    local record, rerr = config.resolve_provider(snap, "p1")
+  -- Legal: context_window 4096 flows through configure -> resolve_provider
+  -- (LazyVim opts config model; no project yaml involved).
+  local cfg, cerr = config.configure(require("maxa").defaults, {
+    provider = {
+      default = "p1",
+      definitions = {
+        p1 = { protocol = "openai_chat", base_url = "https://example.com", model = "m1", context_window = 4096 },
+      },
+    },
+  })
+  check(cfg ~= nil, "F: legal context_window configures (" .. tostring(cerr and cerr.message or "") .. ")")
+  if cfg then
+    local record, rerr = config.resolve_provider(cfg, "p1")
     check(record ~= nil, "F: provider resolves (" .. tostring(rerr and rerr.message or "") .. ")")
-    assert_eq(record.context_window, 4096, "F: record carries context_window")
+    if record then
+      assert_eq(record.context_window, 4096, "F: record carries context_window")
+    end
   end
-
   -- Illegal: negative context_window fails closed.
-  local bad = [[
-schema_version: 1
-project_id: ctxwin-test
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://example.com
-      model: m1
-      context_window: -5
-]]
-  local f2 = io.open(tmp .. "/.maxa/runtime.yaml", "w")
-  f2:write(bad)
-  f2:close()
-  local snap2, cerr2 = config.load(tmp, { resolve_root = false })
-  check(snap2 == nil and cerr2 ~= nil, "F: negative context_window rejected fail-closed")
+  local bad_cfg, bad_err = config.configure(require("maxa").defaults, {
+    provider = {
+      default = "p1",
+      definitions = {
+        p1 = { protocol = "openai_chat", base_url = "https://example.com", model = "m1", context_window = -5 },
+      },
+    },
+  })
+  check(bad_cfg == nil and bad_err ~= nil, "F: negative context_window rejected fail-closed")
 end
 
 if ok_all then

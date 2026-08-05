@@ -14,7 +14,7 @@
 ---      direct pass-through continuation submits one automatic request with
 ---      the default echo body, which completes the chain. The final displayed
 ---      usage is the continuation's local estimate (out=8).
----   C. .maxa/runtime.yaml loads; config.resolve_provider binds the registered
+---   C. LazyVim opts config merges (config.configure); resolve_provider binds the registered
 ---      openai_chat adapter; orchestrator:use_provider_record falls back to mock
 ---      without a key and binds the real adapter with one (no network).
 ---   D. rendering lines: reasoning collapsed summary vs full (show_reasoning),
@@ -207,10 +207,13 @@ do
   local openai_chat = require("maxa.runtime.protocol.adapters.openai_chat")
   check(type(openai_chat) == "table", "C: openai_chat adapter loads")
 
-  local snap, err = config.load("/home/maxzhao/maxa")
-  check(snap ~= nil, "C: .maxa/runtime.yaml parses (err=" .. tostring(err and err.message) .. ")")
-  if snap then
-    local record, rerr = config.resolve_provider(snap)
+  -- Real provider definitions come from the mother-repository LazyVim opts
+  -- (lua/plugins/maxa.lua), merged over the bundled defaults (LazyVim config model).
+  local spec = require("plugins.maxa")[1]
+  local cfg, cerr = config.configure(require("maxa").defaults, spec.opts or {})
+  check(cfg ~= nil, "C: opts config merges (err=" .. tostring(cerr and cerr.message) .. ")")
+  if cfg then
+    local record, rerr = config.resolve_provider(cfg)
     check(record ~= nil, "C: resolve_provider ok (err=" .. tostring(rerr and rerr.message) .. ")")
     if record then
       assert_eq(record.protocol, "openai_chat", "C: default provider protocol")
@@ -219,16 +222,16 @@ do
 
       -- Without a key: offline fallback to the local mock provider.
       vim.env.DEEPSEEK_TEST_KEY = nil
-      local record_nokey = config.resolve_provider(snap)
+      local record_nokey = config.resolve_provider(cfg)
       local orch = orchestrator.new({ provider_record = record_nokey })
       assert_eq(orch._real_adapter, false, "C: no key -> fallback flag false")
       assert_eq(orch.provider.name, "mock", "C: no key -> mock provider bound")
       assert_eq(orch.model, "deepseek-v4-flash", "C: no key -> record model label kept")
 
-      -- With a key: re-resolve (api_key is snapshotted at resolve time) and bind
+      -- With a key: re-resolve (api_key is resolved at call time) and bind
       -- the real adapter (no network call made here).
       vim.env.DEEPSEEK_TEST_KEY = "test-key"
-      local record_key = config.resolve_provider(snap)
+      local record_key = config.resolve_provider(cfg)
       check(record_key ~= nil, "C: resolve_provider with key ok")
       local orch2 = orchestrator.new({ provider_record = record_key })
       assert_eq(orch2._real_adapter, true, "C: key -> real adapter flag true")

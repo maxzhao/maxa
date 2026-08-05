@@ -16,7 +16,7 @@
 ---   :MaxaClose    close the Chat window pair + destroy the session
 ---   :MaxaProvider switch provider (default "mock"): mock | echo | deepseek-chat |
 ---                 deepseek-responses | deepseek-anthropic (W10: real providers
----                 resolve through .maxa/runtime.yaml + protocol adapters)
+---                 resolve through the effective LazyVim opts config + protocol adapters)
 ---   :MaxaModel    switch display model label (default "mock-model")
 ---   :MaxaClear    clear the rendered messages (keeps session + current provider/model)
 ---
@@ -24,9 +24,10 @@
 --- does NOT reimplement the state machine (session/orchestrator own that) and it
 --- never loads `codecompanion.*` / `mcphub.*` / `lua/util/hooks/*`. Provider/model
 --- switching only re-arms the orchestrator's provider. Real provider binding (W10):
---- `View:set_provider` falls back to `config.load(ROOT, {resolve_root=false})` +
---- `config.resolve_provider(snap, name)`, binds the protocol adapter, and hands the
---- orchestrator pre-built adapter params (flattened timeouts + anthropic url/headers).
+--- `View:set_provider` falls back to `config.resolve_provider(config.effective, name)`
+--- (effective config = lua/maxa defaults + LazyVim opts), binds the protocol adapter,
+--- and hands the orchestrator pre-built adapter params (flattened timeouts + anthropic
+--- url/headers).
 ---
 --- Design notes:
 ---   * `submit(text, opts)` is UI-independent: it works headlessly (no window pair
@@ -105,15 +106,10 @@ M.KEYMAPS = {
   { buf = "chat", mode = "n", keys = "g?", desc = "show keymap help", fn = "_show_keymap_help" },
 }
 
--- W10.2: this repository's root, derived from this module's own path:
---   debug.getinfo(1, "S").source == "@<repo>/lua/maxa/runtime/host/nvim/init.lua"
--- (same pattern as lua/plugins/maxa.lua; no hard-coded absolute path). Used to
--- locate the dev `.maxa/runtime.yaml` for real provider resolution. Target
--- projects replace the dev runtime.yaml/credential source at this boundary.
-local src = debug.getinfo(1, "S") and debug.getinfo(1, "S").source or ""
--- `vim.fn.resolve` normalizes the nvim-maxa symlink (~/.config/nvim-maxa ->
--- this repository) so config/credential resolution lands on the real repo root.
-M.ROOT = vim.fn.resolve(src:match("^@(.+)/lua/maxa/runtime/host/nvim/init%.lua$") or vim.fn.getcwd())
+-- (Repository-root derivation was previously used for dev `.maxa/runtime.yaml`
+-- resolution. Configuration is now LazyVim opts and provider resolution goes
+-- through config.effective; the dev-asset credential boundary lives in
+-- lua/maxa/init.lua inject_dev_env. No M.ROOT export is needed anymore.)
 
 -- Defaults (mock/echo providers; real adapters bind through config in W10).
 M.DEFAULT_PROVIDER = protocol.providers.mock or "mock"
@@ -249,11 +245,61 @@ end
 ---   provider_params?: table forwarded to provider.stream on each submit,
 --- }
 ---@return table view
+---@private Resolve a provider for a fresh view (or set_provider): built-in
+--- (mock/echo) via the protocol registry; real providers via the effective
+--- LazyVim opts config (config.effective). Mirrors View:set_provider.
+---@param name string provider name
+---@return table|nil provider built-in provider adapter (mock/echo path)
+---@return table|nil record config provider record (real path, adapter bound)
+---@return table|nil params pre-built adapter setup params (real path)
+---@return table|nil err resolve failure (unknown provider / no adapter)
+local function resolve_provider_for_view(name)
+  local ok_pc, provider = pcall(protocol.get, name)
+  if ok_pc and type(provider) == "table" then
+    return provider, nil, nil, nil
+  end
+  local record, rerr = config.resolve_provider(config.effective, name)
+  if not record then
+    return nil, nil, nil, rerr
+  end
+  if not record.adapter then
+    pcall(require, "maxa.runtime.protocol.adapters." .. record.protocol)
+    local adapter = protocol.get_adapter(record.protocol)
+    if adapter then
+      record:bind(adapter)
+    end
+  end
+  if not record.adapter then
+    return nil,
+      nil,
+      nil,
+      {
+        message = ("no adapter for provider %q (protocol %s)"):format(tostring(name), tostring(record.protocol)),
+      }
+  end
+  local params = {
+    model = record.model,
+    stream = true,
+    base_url = record.base_url,
+    api_key_env = record.api_key_env,
+    connect_timeout_ms = record.request and record.request.connect_timeout_ms,
+    timeout_ms = record.request and record.request.timeout_ms,
+    proxy_env = record.request and record.request.proxy_env,
+  }
+  if record.protocol == "anthropic_messages" then
+    params.url = record.base_url:gsub("/+$", "") .. "/v1/messages"
+    params.headers = {
+      ["content-type"] = "application/json",
+      ["x-api-key"] = os.getenv(record.api_key_env or ""),
+    }
+  end
+  return nil, record, params, nil
+end
 function M.new(opts)
   opts = opts or {}
   local bus = opts.events or events
   local provider_name = opts.provider or M.DEFAULT_PROVIDER
-  local provider = protocol.get(provider_name)
+  local provider, record, params, rerr = resolve_provider_for_view(provider_name)
 
   -- The orchestrator owns the stream loop and asserts that a provider is attached
   -- before the first submit, so attach the initial provider before returning.
@@ -261,13 +307,24 @@ function M.new(opts)
     model = opts.model or M.DEFAULT_MODEL,
     events = bus,
   })
-  orch:use_provider(provider)
+  if record then
+    -- Real provider (W10.2): the orchestrator binds the adapter when the key is
+    -- available, otherwise falls back to the local mock (offline dev keeps the
+    -- UI usable); the record model label is applied either way.
+    orch:use_provider_record(record, { params = params })
+  elseif provider then
+    orch:use_provider(provider)
+  else
+    -- Unknown provider: keep the UI usable with the local mock and surface the
+    -- resolve error (non-terminal) instead of failing view creation.
+    orch:use_provider(protocol.get("mock"))
+  end
 
   local self = setmetatable({
     orch = orch,
-    provider = provider,
+    provider = orch.provider,
     provider_name = provider_name,
-    model = opts.model or M.DEFAULT_MODEL,
+    model = (record and record.model) or opts.model or M.DEFAULT_MODEL,
     events = bus,
     provider_params = opts.provider_params or {},
     items = {}, -- ordered message model { role=string, text=string,
@@ -310,6 +367,11 @@ function M.new(opts)
     -- detach() releases it without touching the session/request.
     _session_view = nil,
   }, View)
+  if rerr then
+    self.errors[#self.errors + 1] = {
+      message = ("provider %q: %s"):format(tostring(provider_name), tostring(rerr.message or "resolve failed")),
+    }
+  end
 
   self:_subscribe()
   ensure_exit_hook()
@@ -1002,12 +1064,11 @@ end
 --- (chat-ui-actions). Falls back to direct set_provider when no UI is present.
 function View:_pick_provider()
   local candidates = { "mock", "echo" }
-  local snap, cerr = config.load(M.ROOT, { resolve_root = false })
-  -- config snapshots are frozen proxies; `unfreeze` recovers the real tree
-  -- (LuaJIT pairs() ignores the __pairs metamethod, so proxies iterate empty).
-  local raw = snap and config.unfreeze(snap._view)
-  if raw and raw.provider and raw.provider.definitions then
-    for id in pairs(raw.provider.definitions) do
+  -- Real providers come from the effective LazyVim opts config
+  -- (lua/maxa/init.lua defaults + user opts, merged by maxa.setup).
+  local eff = config.effective
+  if eff and eff.provider and eff.provider.definitions then
+    for id in pairs(eff.provider.definitions) do
       candidates[#candidates + 1] = id
     end
   end
@@ -1218,14 +1279,13 @@ function View:close()
 end
 
 --- Switch the provider. Local mock/echo first (protocol registry, unchanged
---- phase-0 behavior); any other name resolves through `.maxa/runtime.yaml`
---- (W10.2): `config.load(ROOT, {resolve_root=false})` +
---- `config.resolve_provider(snap, name)` -> bind the protocol adapter -> build
---- the real adapter params from the record (model/base_url/api_key_env/
---- connect_timeout_ms/timeout_ms/proxy_env, live.lua st_params shape; anthropic
---- additionally needs caller-supplied url/headers) -> hand them to the
---- orchestrator via `use_provider_record(record, { params = ... })`, which keeps
---- the offline mock fallback when no api key is available.
+--- phase-0 behavior); any other name resolves through the effective LazyVim opts
+--- config (W10.2): `config.resolve_provider(config.effective, name)` -> bind the
+--- protocol adapter -> build the real adapter params from the record
+--- (model/base_url/api_key_env/connect_timeout_ms/timeout_ms/proxy_env, live.lua
+--- st_params shape; anthropic additionally needs caller-supplied url/headers) ->
+--- hand them to the orchestrator via `use_provider_record(record, { params = ... })`,
+--- which keeps the offline mock fallback when no api key is available.
 ---@param name string provider name (mock|echo or a config provider id)
 ---@return boolean ok
 function View:set_provider(name)
@@ -1240,16 +1300,9 @@ function View:set_provider(name)
     return true
   end
 
-  -- Real provider path (W10.2): resolve through the dev .maxa/runtime.yaml.
-  local snap, cerr = config.load(M.ROOT, { resolve_root = false })
-  if not snap then
-    self.errors[#self.errors + 1] = {
-      message = ("set_provider %q: %s"):format(tostring(name), tostring(cerr and cerr.message or "config load failed")),
-    }
-    self:_render()
-    return false
-  end
-  local record, rerr = config.resolve_provider(snap, name)
+  -- Real provider path (W10.2): resolve through the effective LazyVim opts config
+  -- (defaults in lua/maxa/init.lua, user overrides in lua/plugins/maxa.lua opts).
+  local record, rerr = config.resolve_provider(config.effective, name)
   if not record then
     self.errors[#self.errors + 1] = {
       message = ("unknown provider %q: %s"):format(tostring(name), tostring(rerr and rerr.message or "resolve failed")),

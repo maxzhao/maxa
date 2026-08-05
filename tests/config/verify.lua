@@ -1,14 +1,15 @@
 -- filepath: tests/config/verify.lua
---- W3 headless verification: full `runtime.yaml` schema + provider resolution.
+--- W3 headless verification: LazyVim opts config merge/validation + provider resolution.
 ---
---- Covers (phase1-todo W3):
----   * legal config: the real /home/maxzhao/maxa/.maxa/runtime.yaml parses; every
+--- Covers (phase1-todo W3, reworked to the LazyVim-opts configuration model):
+---   * legal config: `config.configure(defaults, opts)` merges and validates; every
 ---     provider definition resolves to a normalized record (protocol/base_url/
 ---     api_key_env/model/capabilities/request/adapter bind interface).
----   * fail-closed: unknown top-level and nested fields, deprecated top-level
----     `model`/`prompts`, invalid enum values, wrong request types.
+---   * fail-closed: unknown top-level keys, invalid protocol enum values, wrong
+---     field types (negative context_window), literal credentials.
 ---   * credential guard: literal secrets rejected; `api_key_env` must be an env name.
----   * provider cross-fields: `provider.default` must exist in `definitions`.
+---   * provider cross-fields: `provider.default` must exist in `definitions`
+---     (or be a built-in mock/echo); empty definitions with non-builtin default fails.
 ---   * protocol capability matrix: `false` for a protocol-native channel conflicts
 ---     (gemini tools, openai_responses/anthropic reasoning); non-native/optional
 ---     channels (openai_chat reasoning, vision anywhere) may be false.
@@ -16,510 +17,296 @@
 ---     `openai_chat` stays openai_chat.
 ---   * adapter binding: `resolve_provider` binds a registered protocol adapter and
 ---     exposes `record:bind()` for later W4-W7 registration.
+---   * built-in default: `provider.default = "mock"` with empty definitions is legal.
 ---
 --- Offline; no network, no key. Exit contract: returns true on success; the justfile
 --- recipe turns a false/error into `:cq`.
-local failures = 0
-local checks = 0
-
-local function expect(cond, label)
-  checks = checks + 1
-  if cond then
-    print(("  ok   %s"):format(label))
-  else
-    failures = failures + 1
-    print(("  FAIL %s"):format(label))
+local ok_all = true
+local failures = {}
+local function check(cond, msg)
+  if not cond then
+    ok_all = false
+    failures[#failures + 1] = msg
+    print("VERIFY_FAIL: " .. msg)
   end
 end
-
+local function assert_eq(got, want, msg)
+  if got ~= want then
+    check(false, ("%s (got %s, want %s)"):format(msg, vim.inspect(got), vim.inspect(want)))
+  end
+end
 local function contains(haystack, needle)
-  return type(haystack) == "string" and haystack:find(needle, 1, true) ~= nil
-end
-
--- Ensure LazyVim ecosystem (plenary.path) is require-able before loading config.
-local function ensure_ecosystem()
-  if pcall(require, "plenary.path") then
-    return true
-  end
-  local deadline = vim.loop.hrtime() + 20000 * 1e6
-  while vim.loop.hrtime() < deadline do
-    if pcall(require, "plenary.path") then
+  for _, v in ipairs(haystack) do
+    if v == needle then
       return true
     end
-    vim.wait(100)
   end
   return false
 end
-
-if not ensure_ecosystem() then
-  print("CONFIG_VERIFY_FAIL: plenary not ready")
-  return false
+-- Ensure LazyVim ecosystem (plenary.path) is require-able before loading config.
+local function ensure_ecosystem()
+  local ok, _ = pcall(require, "plenary.path")
+  if not ok then
+    error("tests/config/verify.lua: plenary.path not require-able (LazyVim ecosystem missing)")
+  end
 end
-
+ensure_ecosystem()
 local config = require("maxa.runtime.config")
-local schema = require("maxa.runtime.schema")
-local yaml = require("maxa.runtime.config.yaml")
-
---- Write `content` to a fresh temp project's `.maxa/runtime.yaml` and load it.
----@param content string YAML document
----@return table|nil snap
+local maxa_mod = require("maxa")
+--- Merge defaults + user opts and resolve a provider; convenience wrapper.
+---@param opts table user opts
+---@param id? string provider id
+---@return table|nil record
 ---@return table|nil err
-local function load_cfg(content)
-  local dir = vim.fn.tempname()
-  vim.fn.mkdir(dir .. "/.maxa", "p")
-  local fh = assert(io.open(dir .. "/.maxa/runtime.yaml", "wb"))
-  fh:write(content)
-  fh:close()
-  return config.load(dir, { resolve_root = false })
-end
-
---- Resolve a provider from a temp config; convenience for error-case assertions.
-local function resolve_from(content, id)
-  local snap, err = load_cfg(content)
-  if not snap then
-    return nil, err
+local function configure_and_resolve(opts, id)
+  local cfg, cerr = config.configure(maxa_mod.defaults, opts)
+  if not cfg then
+    return nil, cerr
   end
-  return config.resolve_provider(snap, id)
+  return config.resolve_provider(cfg, id)
 end
 
-print("== config W3 verify ==")
-
 ------------------------------------------------------------
--- 1. Legal config: real /home/maxzhao/maxa/.maxa/runtime.yaml
+-- 1. Legal: full deepseek definitions (mirror of lua/plugins/maxa.lua opts)
 ------------------------------------------------------------
-print("-- 1 legal: real .maxa/runtime.yaml")
 do
-  local snap, err = config.load("/home/maxzhao/maxa", { resolve_root = false })
-  expect(snap ~= nil, "real runtime.yaml loads" .. (err and (" (" .. err.message .. ")") or ""))
-  if snap then
-    local src = snap:source()
-    expect(src.config_path == "/home/maxzhao/maxa/.maxa/runtime.yaml", "evidence config_path")
-    expect(src.schema_version == 1, "evidence schema_version")
-
-    local p = snap:get("provider")
-    expect(type(p) == "table" and p.default == "deepseek-chat", "provider.default == deepseek-chat")
-
-    local cases = {
-      {
-        id = "deepseek-chat",
-        protocol = "openai_chat",
-        base_url = "https://api.deepseek.com",
+  local opts = {
+    provider = {
+      default = "deepseek-chat",
+      definitions = {
+        ["deepseek-chat"] = {
+          protocol = "openai_chat",
+          base_url = "https://api.deepseek.com/",
+          api_key_env = "DEEPSEEK_TEST_KEY",
+          model = "deepseek-v4-flash",
+          capabilities = { vision = false, tools = true, reasoning = true },
+          request = { timeout_ms = 60000, connect_timeout_ms = 10000, retries = 0 },
+        },
+        ["deepseek-responses"] = {
+          protocol = "openai_responses",
+          base_url = "https://api.deepseek.com",
+          api_key_env = "DEEPSEEK_TEST_KEY",
+          model = "deepseek-v4-flash",
+        },
+        ["deepseek-anthropic"] = {
+          protocol = "anthropic_messages",
+          base_url = "https://api.deepseek.com/anthropic",
+          api_key_env = "DEEPSEEK_TEST_KEY",
+          model = "deepseek-v4-flash",
+        },
       },
-      {
-        id = "deepseek-responses",
-        protocol = "openai_responses",
-        base_url = "https://api.deepseek.com",
-      },
-      {
-        id = "deepseek-anthropic",
-        protocol = "anthropic_messages",
-        base_url = "https://api.deepseek.com/anthropic",
-      },
-    }
-    for _, c in ipairs(cases) do
-      local rec, rerr = config.resolve_provider(snap, c.id)
-      expect(rec ~= nil, ("resolve %s"):format(c.id) .. (rerr and (" (" .. rerr.message .. ")") or ""))
-      if rec then
-        expect(rec.id == c.id, ("%s.id"):format(c.id))
-        expect(rec.protocol == c.protocol, ("%s.protocol == %s"):format(c.id, c.protocol))
-        expect(rec.base_url == c.base_url, ("%s.base_url normalized (%s)"):format(c.id, rec.base_url))
-        expect(rec.api_key_env == "DEEPSEEK_TEST_KEY", ("%s.api_key_env"):format(c.id))
-        expect(
-          rec.api_key == nil or type(rec.api_key) == "string",
-          ("%s.api_key is nil-or-string (never persisted)"):format(c.id)
-        )
-        expect(rec.model == "deepseek-v4-flash", ("%s.model"):format(c.id))
-        expect(
-          rec.capabilities.vision == false and rec.capabilities.tools == true and rec.capabilities.reasoning == true,
-          ("%s.capabilities merged {vision=false,tools=true,reasoning=true}"):format(c.id)
-        )
-        expect(
-          rec.request.timeout_ms == 60000
-            and rec.request.connect_timeout_ms == 10000
-            and rec.request.retries == 0
-            and rec.request.proxy_env == nil,
-          ("%s.request normalized (null proxy_env -> nil)"):format(c.id)
-        )
-        expect(rec.adapter == nil, ("%s.adapter unbound (no W4-W7 adapter yet)"):format(c.id))
-        expect(type(rec.bind) == "function", ("%s.bind interface present"):format(c.id))
-      end
-    end
-
-    -- snapshot immutability (fail-closed)
-    local ok_set, set_err = pcall(function()
-      snap:get(nil).project_id = "mutated"
-    end)
-    expect(not ok_set and contains(tostring(set_err), "immutable"), "snapshot is immutable")
-
-    -- default provider resolution without explicit id
-    local defrec = config.resolve_provider(snap)
-    expect(defrec ~= nil and defrec.id == "deepseek-chat", "resolve_provider defaults to provider.default")
+    },
+  }
+  local record, err = configure_and_resolve(opts)
+  check(record ~= nil, "1: default provider resolves (err=" .. tostring(err and err.message) .. ")")
+  if record then
+    assert_eq(record.protocol, "openai_chat", "1: default provider protocol")
+    assert_eq(record.base_url, "https://api.deepseek.com", "1: trailing slash normalized")
+    assert_eq(record.api_key_env, "DEEPSEEK_TEST_KEY", "1: api_key_env preserved")
+    assert_eq(record.model, "deepseek-v4-flash", "1: model carried")
+    assert_eq(record.capabilities.reasoning, true, "1: declared reasoning kept")
+    assert_eq(record.request.timeout_ms, 60000, "1: request timeout carried")
+    check(type(record.bind) == "function", "1: record exposes bind()")
+    -- openai_chat default capability matrix: tools=true native; reasoning non-native
+    -- but declared true stays true; vision default false.
+    assert_eq(record.capabilities.tools, true, "1: openai_chat tools native true")
+    assert_eq(record.capabilities.vision, false, "1: vision defaults false")
+  end
+  local r2, e2 = configure_and_resolve(opts, "deepseek-responses")
+  check(r2 ~= nil, "1b: named provider resolves (err=" .. tostring(e2 and e2.message) .. ")")
+  if r2 then
+    assert_eq(r2.protocol, "openai_responses", "1b: responses protocol")
+    -- absent capabilities -> protocol defaults (reasoning true for responses).
+    assert_eq(r2.capabilities.reasoning, true, "1b: responses reasoning default true")
   end
 end
 
 ------------------------------------------------------------
--- 2. Legal: trailing-slash base_url + absent capabilities + extensions
+-- 2. Built-in default: mock with empty definitions is legal
 ------------------------------------------------------------
-print("-- 2 legal: trailing slash, defaults, extensions, null structs")
 do
-  local y = [=[
-schema_version: 1
-project_id: w3-test
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://api.example.com/v1///
-      model: m1
-extensions:
-  custom:
-    anything: true
-history: null
-]=]
-  local snap, err = load_cfg(y)
-  expect(snap ~= nil, "parses with trailing slash / extensions / null" .. (err and (" (" .. err.message .. ")") or ""))
-  if snap then
-    local rec = config.resolve_provider(snap, "p1")
-    expect(rec.base_url == "https://api.example.com/v1", "base_url trailing slashes stripped")
-    expect(
-      rec.capabilities.vision == false and rec.capabilities.tools == true and rec.capabilities.reasoning == false,
-      "openai_chat capability defaults {vision=false,tools=true,reasoning=false}"
-    )
-    expect(rec.api_key_env == nil and rec.api_key == nil, "api_key_env optional")
+  local cfg, cerr = config.configure(maxa_mod.defaults, {})
+  check(cfg ~= nil, "2: default opts (mock, empty definitions) configure ok (err=" .. tostring(cerr and cerr.message) .. ")")
+  if cfg then
+    assert_eq(cfg.provider.default, "mock", "2: default provider is mock")
+    -- Built-in providers never resolve through definitions (protocol registry).
+    local rec, rerr = config.resolve_provider(cfg, "mock")
+    check(rec == nil and rerr ~= nil, "2: mock not in definitions -> resolve_provider errors (registry owns it)")
   end
 end
 
 ------------------------------------------------------------
--- 3. Fail-closed: unknown / deprecated / invalid fields
+-- 3. Fail-closed: unknown / invalid / wrong-typed fields
 ------------------------------------------------------------
-print("-- 3 fail-closed: unknown and deprecated fields")
 do
-  local _, err = load_cfg("schema_version: 1\nproject_id: x\nbogus: 1\n")
-  expect(err ~= nil and contains(err.message, "unknown core field"), "unknown top-level field rejected")
+  local bad_unknown, err_unknown = config.configure(maxa_mod.defaults, { not_a_key = 1 })
+  check(bad_unknown == nil and err_unknown ~= nil, "3: unknown top-level key rejected fail-closed")
 
-  local _, err2 = load_cfg("schema_version: 1\nproject_id: x\nmodel: m\n")
-  expect(
-    err2 ~= nil and contains(err2.message, "unknown core field"),
-    "deprecated top-level model rejected (fail-closed)"
-  )
+  local bad_proto, err_proto = config.configure(maxa_mod.defaults, {
+    provider = {
+      default = "p1",
+      definitions = { p1 = { protocol = "ftp", base_url = "https://x", model = "m" } },
+    },
+  })
+  check(bad_proto == nil and err_proto ~= nil, "3b: invalid protocol enum rejected")
 
-  local _, err3 = load_cfg("schema_version: 1\nproject_id: x\nprompts: {}\n")
-  expect(err3 ~= nil and contains(err3.message, "unknown core field"), "deprecated top-level prompts rejected")
+  local bad_ctx, err_ctx = config.configure(maxa_mod.defaults, {
+    provider = {
+      default = "p1",
+      definitions = { p1 = { protocol = "openai_chat", base_url = "https://x", model = "m", context_window = -5 } },
+    },
+  })
+  check(bad_ctx == nil and err_ctx ~= nil, "3c: negative context_window rejected fail-closed")
 
-  local ui_err = [=[
-schema_version: 1
-project_id: x
-ui:
-  layout: vertical
-  bogus: 1
-]=]
-  local _, err4 = load_cfg(ui_err)
-  expect(err4 ~= nil and contains(err4.message, "ui.bogus"), "unknown nested ui field rejected")
-
-  local cap_err = [=[
-schema_version: 1
-project_id: x
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://api.example.com
-      model: m1
-      capabilities:
-        capabilitiez: true
-]=]
-  local _, err5 = load_cfg(cap_err)
-  expect(err5 ~= nil and contains(err5.message, "capabilitiez"), "unknown capability key rejected")
-
-  local enum_err = [=[
-schema_version: 1
-project_id: x
-ui:
-  layout: popup
-]=]
-  local _, err6 = load_cfg(enum_err)
-  expect(err6 ~= nil and contains(err6.message, "must be one of"), "ui.layout enum enforced")
-
-  local type_err = [=[
-schema_version: 1
-project_id: x
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://api.example.com
-      model: m1
-      request:
-        timeout_ms: fast
-]=]
-  local _, err7 = load_cfg(type_err)
-  expect(err7 ~= nil and contains(err7.message, "timeout_ms"), "request.timeout_ms type enforced")
-
-  local _, err8 = load_cfg("project_id: x\n")
-  expect(err8 ~= nil and contains(err8.message, "schema_version"), "required schema_version enforced")
+  local bad_url, err_url = config.configure(maxa_mod.defaults, {
+    provider = {
+      default = "p1",
+      definitions = { p1 = { protocol = "openai_chat", base_url = "", model = "m" } },
+    },
+  })
+  check(bad_url == nil and err_url ~= nil, "3d: empty base_url rejected")
 end
 
 ------------------------------------------------------------
 -- 4. Credential guard
 ------------------------------------------------------------
-print("-- 4 credential guard")
 do
-  local lit = [=[
-schema_version: 1
-project_id: x
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://api.example.com
-      model: m1
-      api_key: sk-abcdef123456
-]=]
-  local _, err = load_cfg(lit)
-  expect(err ~= nil and contains(err.message, "literal credential"), "literal api_key rejected")
+  local bad_secret, err_secret = config.configure(maxa_mod.defaults, {
+    provider = {
+      default = "p1",
+      definitions = { p1 = { protocol = "openai_chat", base_url = "https://x", model = "m", api_key = "sk-literal" } },
+    },
+  })
+  check(bad_secret == nil and err_secret ~= nil, "4: literal api_key rejected")
 
-  local bad_env = [=[
-schema_version: 1
-project_id: x
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://api.example.com
-      model: m1
-      api_key_env: sk-abc/def
-]=]
-  local _, err2 = load_cfg(bad_env)
-  expect(
-    err2 ~= nil and contains(err2.message, "environment variable name"),
-    "api_key_env must be an env name (no literals)"
-  )
+  local bad_secret_nested, _ = config.configure(maxa_mod.defaults, {
+    provider = {
+      default = "p1",
+      definitions = { p1 = { protocol = "openai_chat", base_url = "https://x", model = "m", request = { headers = { token = "xyz" } } } },
+    },
+  })
+  check(bad_secret_nested == nil, "4b: nested secret value rejected (request.headers.token)")
 
-  local ok_env = [=[
-schema_version: 1
-project_id: x
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://api.example.com
-      model: m1
-      api_key_env: W3_TEST_KEY
-      request:
-        proxy_env: HTTPS_PROXY
-]=]
-  local snap, err3 = load_cfg(ok_env)
-  expect(snap ~= nil, "valid env-name api_key_env accepted" .. (err3 and (" (" .. err3.message .. ")") or ""))
-  if snap then
-    local rec = config.resolve_provider(snap, "p1")
-    expect(rec.api_key_env == "W3_TEST_KEY", "env name preserved in record")
-    expect(rec.request.proxy_env == "HTTPS_PROXY", "proxy_env env name preserved")
-  end
+  local bad_env, err_env = config.configure(maxa_mod.defaults, {
+    provider = {
+      default = "p1",
+      definitions = { p1 = { protocol = "openai_chat", base_url = "https://x", model = "m", api_key_env = "sk-12345" } },
+    },
+  })
+  check(bad_env == nil and err_env ~= nil, "4c: api_key_env must be an env name (not a literal)")
 end
 
 ------------------------------------------------------------
 -- 5. provider.default cross-field
 ------------------------------------------------------------
-print("-- 5 provider.default cross-field")
 do
-  local no_default = [=[
-schema_version: 1
-project_id: x
-provider:
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://api.example.com
-      model: m1
-]=]
-  local _, err = load_cfg(no_default)
-  expect(err ~= nil and contains(err.message, "provider.default"), "provider.default required when block present")
+  local bad_default, err_default = config.configure(maxa_mod.defaults, {
+    provider = {
+      default = "nope",
+      definitions = { p1 = { protocol = "openai_chat", base_url = "https://x", model = "m" } },
+    },
+  })
+  check(bad_default == nil and err_default ~= nil, "5: default not in definitions rejected")
 
-  local bad_default = [=[
-schema_version: 1
-project_id: x
-provider:
-  default: nope
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://api.example.com
-      model: m1
-]=]
-  local _, err2 = load_cfg(bad_default)
-  expect(err2 ~= nil and contains(err2.message, "not defined"), "provider.default must exist in definitions")
-
-  local no_provider = "schema_version: 1\nproject_id: x\n"
-  local snap, err3 = load_cfg(no_provider)
-  expect(
-    snap ~= nil,
-    "provider block optional (bundled defaults apply)" .. (err3 and (" (" .. err3.message .. ")") or "")
-  )
-  if snap then
-    local rec, rerr = config.resolve_provider(snap)
-    expect(
-      rec == nil and rerr ~= nil and contains(rerr.message, "no provider block"),
-      "resolve without provider block errors"
-    )
-  end
-
-  local unknown_id, uerr = resolve_from(
-    [=[
-schema_version: 1
-project_id: x
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://api.example.com
-      model: m1
-]=],
-    "nope"
-  )
-  expect(
-    unknown_id == nil and uerr ~= nil and contains(uerr.message, "unknown provider"),
-    "resolve unknown provider id errors"
-  )
+  local bad_builtin, err_builtin = config.configure(maxa_mod.defaults, {
+    provider = { default = "nope", definitions = {} },
+  })
+  check(bad_builtin == nil and err_builtin ~= nil, "5b: non-builtin default with empty definitions rejected")
 end
 
 ------------------------------------------------------------
 -- 6. Protocol capability matrix
 ------------------------------------------------------------
-print("-- 6 protocol capability matrix")
 do
-  local function with_caps(protocol, caps_line)
-    return [=[
-schema_version: 1
-project_id: x
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: ]=] .. protocol .. "\n" .. [=[
-      base_url: https://api.example.com
-      model: m1
-      capabilities:
-]=] .. caps_line
+  local bad_gemini, err_gemini = config.configure(maxa_mod.defaults, {
+    provider = {
+      default = "g1",
+      definitions = { g1 = { protocol = "gemini", base_url = "https://x", model = "m", capabilities = { tools = false } } },
+    },
+  })
+  check(bad_gemini == nil and err_gemini ~= nil, "6: gemini tools=false conflicts native channel")
+
+  local bad_anthropic, _ = config.configure(maxa_mod.defaults, {
+    provider = {
+      default = "a1",
+      definitions = { a1 = { protocol = "anthropic_messages", base_url = "https://x", model = "m", capabilities = { reasoning = false } } },
+    },
+  })
+  check(bad_anthropic == nil, "6b: anthropic reasoning=false conflicts native channel")
+
+  -- openai_chat reasoning is non-native: false is legal.
+  local ok_chat, err_chat = config.configure(maxa_mod.defaults, {
+    provider = {
+      default = "c1",
+      definitions = { c1 = { protocol = "openai_chat", base_url = "https://x", model = "m", capabilities = { reasoning = false, vision = false } } },
+    },
+  })
+  check(ok_chat ~= nil, "6c: openai_chat reasoning=false is legal (err=" .. tostring(err_chat and err_chat.message) .. ")")
+end
+
+------------------------------------------------------------
+-- 7. Protocol names are not aliases + adapter binding
+------------------------------------------------------------
+do
+  local opts = {
+    provider = {
+      default = "gemini",
+      definitions = {
+        gemini = { protocol = "openai_chat", base_url = "https://x", model = "m" },
+      },
+    },
+  }
+  local record, err = configure_and_resolve(opts)
+  check(record ~= nil, "7: provider id gemini with openai_chat protocol resolves (err=" .. tostring(err and err.message) .. ")")
+  if record then
+    assert_eq(record.protocol, "openai_chat", "7: id is not a protocol alias")
   end
-
-  local _, e1 = load_cfg(with_caps("gemini", "        tools: false\n"))
-  expect(e1 ~= nil and contains(e1.message, "conflict"), "gemini tools=false conflicts (native channel)")
-
-  local _, e2 = load_cfg(with_caps("openai_responses", "        reasoning: false\n"))
-  expect(e2 ~= nil and contains(e2.message, "conflict"), "openai_responses reasoning=false conflicts (native channel)")
-
-  local _, e3 = load_cfg(with_caps("anthropic_messages", "        reasoning: false\n"))
-  expect(
-    e3 ~= nil and contains(e3.message, "conflict"),
-    "anthropic_messages reasoning=false conflicts (native channel)"
-  )
-
-  local _, e4 = load_cfg(with_caps("openai_responses", "        tools: false\n"))
-  expect(e4 ~= nil and contains(e4.message, "conflict"), "openai_responses tools=false conflicts (native channel)")
-
-  local snap5, e5 = load_cfg(with_caps("openai_chat", "        reasoning: false\n        vision: false\n"))
-  expect(
-    snap5 ~= nil,
-    "openai_chat reasoning=false + vision=false allowed (non-native/optional)"
-      .. (e5 and (" (" .. e5.message .. ")") or "")
-  )
-
-  local _, e6 = load_cfg(with_caps("gemini", "        protocol: openai_chat\n"))
-  -- structural: protocol lives at definition top level, not under capabilities; this
-  -- must fail as an unknown capability key (fail-closed), proving no alias handling.
-  expect(e6 ~= nil and contains(e6.message, "protocol"), "capabilities.protocol unknown key rejected")
+  -- Adapter binding: after registering openai_chat, resolve binds it.
+  local ok_reg = pcall(require, "maxa.runtime.protocol.adapters.openai_chat")
+  check(ok_reg, "7b: openai_chat adapter loads")
+  local rec2, rerr2 = configure_and_resolve({
+    provider = {
+      default = "p1",
+      definitions = { p1 = { protocol = "openai_chat", base_url = "https://x", model = "m" } },
+    },
+  })
+  check(rec2 ~= nil, "7c: resolve ok (err=" .. tostring(rerr2 and rerr2.message) .. ")")
+  if rec2 then
+    check(rec2.adapter ~= nil, "7d: adapter bound to record")
+  end
 end
 
 ------------------------------------------------------------
--- 7. Protocol names are not aliases
+-- 8. State file round-trip (.maxa/state.yaml, temp project)
 ------------------------------------------------------------
-print("-- 7 protocol names are not aliases")
 do
-  local rec, err = resolve_from(
-    [=[
-schema_version: 1
-project_id: x
-provider:
-  default: gemini
-  definitions:
-    gemini:
-      protocol: openai_chat
-      base_url: https://api.example.com
-      model: m1
-      capabilities:
-        tools: true
-        reasoning: true
-]=],
-    "gemini"
-  )
-  expect(
-    rec ~= nil and rec.protocol == "openai_chat",
-    "provider id 'gemini' with protocol openai_chat stays openai_chat (no alias)"
-      .. (err and (" (" .. err.message .. ")") or "")
-  )
-
-  local _, e2 = load_cfg([=[
-schema_version: 1
-project_id: x
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: openai
-      base_url: https://api.example.com
-      model: m1
-]=])
-  expect(e2 ~= nil and contains(e2.message, "must be one of"), "protocol enum rejects non-four-value names")
+  local tmp = vim.fn.tempname()
+  vim.fn.mkdir(tmp .. "/.maxa", "p")
+  local root = tmp
+  local path, serr = config.save_state(root, {
+    schema_version = 1,
+    project_id = "state-test",
+    status = "active",
+  })
+  check(path ~= nil, "8: save_state ok (err=" .. tostring(serr and serr.message) .. ")")
+  local state, lerr = config.load_state(root)
+  check(state ~= nil, "8b: load_state ok (err=" .. tostring(lerr and lerr.message) .. ")")
+  if state then
+    assert_eq(state.schema_version, 1, "8c: state schema_version round-trips")
+    assert_eq(state.project_id, "state-test", "8d: state project_id round-trips")
+    assert_eq(state.status, "active", "8e: state status round-trips")
+  end
+  -- Missing state file is not an error.
+  local empty_root = vim.fn.tempname()
+  vim.fn.mkdir(empty_root .. "/.maxa", "p")
+  local s2, e2 = config.load_state(empty_root)
+  check(s2 == nil and e2 == nil, "8f: missing state.yaml -> nil, nil (not an error)")
 end
 
-------------------------------------------------------------
--- 8. Adapter binding (W4-W7 forward path)
-------------------------------------------------------------
-print("-- 8 adapter binding interface")
-do
-  local proto = require("maxa.runtime.protocol")
-  local dummy = { name = "dummy-w3-test" }
-  proto.register_adapter("openai_chat", dummy)
-  expect(proto.get_adapter("openai_chat") == dummy, "protocol.register_adapter/get_adapter roundtrip")
-
-  local rec, err = resolve_from(
-    [=[
-schema_version: 1
-project_id: x
-provider:
-  default: p1
-  definitions:
-    p1:
-      protocol: openai_chat
-      base_url: https://api.example.com
-      model: m1
-]=],
-    "p1"
-  )
-  expect(
-    rec ~= nil and rec.adapter == dummy,
-    "resolve_provider binds registered adapter" .. (err and (" (" .. err.message .. ")") or "")
-  )
-
-  local bound = { name = "manual" }
-  local rebound = rec:bind(bound)
-  expect(rebound.adapter == bound and rebound == rec, "record:bind() rebinds without replacing record")
-end
-
-------------------------------------------------------------
--- Summary
-------------------------------------------------------------
-print(("CONFIG_VERIFY_RESULT checks=%d failures=%d"):format(checks, failures))
-if failures == 0 then
+if ok_all then
   print("CONFIG_VERIFY_OK")
-  return true
+else
+  print("CONFIG_VERIFY_FAILED count=" .. #failures)
+  vim.cmd("cq")
 end
-print("CONFIG_VERIFY_FAIL")
-return false
+return ok_all

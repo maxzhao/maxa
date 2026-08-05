@@ -86,7 +86,7 @@ local M = {}
 M.name = "openai_chat"
 
 --- Default model used when provider options do not declare one (phase-1 dev
---- default; real deployments resolve the model through config/runtime.yaml).
+--- default; real deployments resolve the model through LazyVim opts provider definitions).
 M.DEFAULT_MODEL = "deepseek-v4-flash"
 
 --- Endpoint suffix (contract: "Target endpoint suffix: /chat/completions").
