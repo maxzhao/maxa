@@ -1,0 +1,48 @@
+# openai-responses/response-incomplete: a response.incomplete frame is a typed
+# terminal failure (NOT success): partial text before it is preserved, then the
+# terminal error (code=provider, cause.status=incomplete) ends the stream.
+id: openai-responses/response-incomplete
+protocol: openai_responses
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Write a long story.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    input:
+      - type: message
+        role: user
+        content:
+          - type: input_text
+            text: Write a long story.
+    store: false
+    stream: true
+response:
+  chunks:
+    - "event: response.created\ndata: {\"id\":\"resp_9\",\"object\":\"response\",\"created_at\":123464,\"status\":\"in_progress\",\"model\":\"deepseek-v4-flash\",\"output\":[]}\n\n"
+    - "event: response.output_item.added\ndata: {\"output_index\":0,\"output_item\":{\"id\":\"msg_9\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n"
+    - "event: response.output_text.delta\ndata: {\"item_id\":\"msg_9\",\"output_index\":0,\"content_index\":0,\"delta\":\"Partial answer\"}\n\n"
+    - "event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"response\":{\"id\":\"resp_9\",\"object\":\"response\",\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"}}}\n\n"
+    - "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_9\",\"object\":\"response\",\"status\":\"completed\",\"output\":[]}}\n\n"
+  expected_events:
+    - response_started
+    - message_delta
+    - error
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: Partial answer
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: failed
+  expected_error:
+    code: provider
+    terminal: true

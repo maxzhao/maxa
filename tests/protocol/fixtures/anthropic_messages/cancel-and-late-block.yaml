@@ -1,0 +1,48 @@
+# anthropic/cancel-and-late-block: caller cancels after chunk 4 (driver
+# extension provider_options.cancel_at); the remaining frames (content_block_stop,
+# message_delta, message_stop) arrive late and MUST be rejected by request
+# identity — no normalized events leak after cancel.
+id: anthropic/cancel-and-late-block
+protocol: anthropic_messages
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: "Say hello"
+  normalized_tools: []
+  provider_options:
+    model: "deepseek-v4-flash"
+    cancel_at: 4
+  expected_body:
+    model: "deepseek-v4-flash"
+    max_tokens: 4096
+    stream: true
+    messages:
+      - role: user
+        content:
+          - type: text
+            text: "Say hello"
+response:
+  chunks:
+    - "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_08\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"deepseek-v4-flash\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}\n\n"
+    - "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello \"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"world\"}}\n\n"
+    # --- cancel happens here (driver: cancel_at=4) ---
+    - "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+    - "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":2}}\n\n"
+    - "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+  expected_events:
+    - response_started
+    - message_delta
+    - message_delta
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: "Hello world"
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: cancelled

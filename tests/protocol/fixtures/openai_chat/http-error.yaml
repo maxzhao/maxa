@@ -1,0 +1,37 @@
+# openai-chat/http-error: an HTTP >= 400 response. The body is the provider
+# error payload and response.status drives the driver's transport-style
+# classification (429 + type insufficient_quota -> rate_limited typed error).
+# No success content is produced; the terminal is the typed error event.
+id: openai-chat/http-error
+protocol: openai_chat
+mode: non_streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Generate a large report.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: false
+  expected_body:
+    model: deepseek-v4-flash
+    messages:
+      - role: user
+        content: Generate a large report.
+response:
+  status: 429
+  chunks:
+    - '{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}}'
+  expected_events:
+    - error
+  expected_message:
+    role: assistant
+    content: []
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: failed
+  expected_error:
+    code: quota
+    terminal: true

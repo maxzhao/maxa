@@ -1,0 +1,107 @@
+mode: "streamed"
+request:
+  provider_options:
+    stream: true
+    model: "deepseek-v4-flash"
+  expected_body:
+    max_tokens: 4096
+    model: "deepseek-v4-flash"
+    messages:
+      - role: "user"
+        content:
+          - text: "Reply with exactly: OK"
+            type: "text"
+    stream: true
+  normalized_messages:
+    - role: "user"
+      content:
+        - type: "text"
+          text: "Reply with exactly: OK"
+  normalized_tools: {}
+protocol: "anthropic_messages"
+response:
+  expected_tool_calls: {}
+  expected_terminal: "completed"
+  chunks:
+    - "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"f968b638-920f-4309-822e-2dde375065b1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-v4-flash\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":88,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"output_tokens\":0,\"service_tier\":\"standard\"}}}\n\n"
+    - "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n"
+    - "event: ping\ndata: {\"type\":\"ping\"}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"We\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" need\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" to\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" respond\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" with\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" exactly\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" \\\"\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"OK\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\\\".\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" The\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" user\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" says\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" \\\"\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Reply\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" with\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" exactly\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\":\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" OK\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\\\".\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" So\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" answer\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" is\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" OK\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\".\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"f968b638-920f-4309-822e-2dde375065b1\"}}\n\n"
+    - "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+    - "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"OK\"}}\n\n"
+    - "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n"
+    - "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":88,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"output_tokens\":26,\"service_tier\":\"standard\"}}\n\n"
+    - "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+  expected_usage:
+    cached_input_tokens: 0
+    total_tokens: 114
+    final: true
+    output_tokens: 26
+    source: "provider_final"
+    input_tokens: 88
+    cache_creation_input_tokens: 0
+  expected_events:
+    - "response_started"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "reasoning_delta"
+    - "message_delta"
+    - "finish_reason"
+    - "usage_updated"
+    - "completed"
+  expected_message:
+    role: "assistant"
+    content:
+      - signature: "f968b638-920f-4309-822e-2dde375065b1"
+        type: "reasoning"
+        content: "We need to respond with exactly \"OK\". The user says \"Reply with exactly: OK\". So answer is OK."
+      - type: "text"
+        text: "OK"
+id: "anthropic-messages/live-stream"

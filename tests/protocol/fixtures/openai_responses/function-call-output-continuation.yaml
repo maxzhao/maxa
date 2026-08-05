@@ -1,0 +1,80 @@
+# openai-responses/function-call-output-continuation: an assistant tool_call
+# part maps to a function_call input item and a tool-role tool_result part maps
+# to a paired function_call_output item; the follow-up user text maps to a
+# plain message item. The response itself is a minimal completed stream.
+id: openai-responses/function-call-output-continuation
+protocol: openai_responses
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Check the weather then answer.
+    - role: assistant
+      content:
+        - type: tool_call
+          call_id: call_1
+          name: get_weather
+          arguments: '{"location":"London"}'
+    - role: tool
+      content:
+        - type: tool_result
+          call_id: call_1
+          status: success
+          content: '{"temp":20}'
+    - role: user
+      content:
+        - type: text
+          text: Now summarize.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    input:
+      - type: message
+        role: user
+        content:
+          - type: input_text
+            text: Check the weather then answer.
+      - type: function_call
+        id: call_1
+        call_id: call_1
+        name: get_weather
+        arguments: '{"location":"London"}'
+      - type: function_call_output
+        call_id: call_1
+        output: '{"temp":20}'
+      - type: message
+        role: user
+        content:
+          - type: input_text
+            text: Now summarize.
+    store: false
+    stream: true
+response:
+  chunks:
+    - "event: response.created\ndata: {\"id\":\"resp_5\",\"object\":\"response\",\"created_at\":123460,\"status\":\"in_progress\",\"model\":\"deepseek-v4-flash\",\"output\":[]}\n\n"
+    - "event: response.output_item.added\ndata: {\"output_index\":0,\"output_item\":{\"id\":\"msg_5\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n"
+    - "event: response.output_text.delta\ndata: {\"item_id\":\"msg_5\",\"output_index\":0,\"content_index\":0,\"delta\":\"It is 20 degrees in London.\"}\n\n"
+    - "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_5\",\"object\":\"response\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_5\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"It is 20 degrees in London.\"}]}],\"usage\":{\"input_tokens\":24,\"output_tokens\":6,\"total_tokens\":30}}}\n\n"
+  expected_events:
+    - response_started
+    - message_delta
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: It is 20 degrees in London.
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 24
+    output_tokens: 6
+    total_tokens: 30
+    source: provider_final
+    final: true
+  expected_terminal: completed

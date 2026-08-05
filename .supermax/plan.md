@@ -64,17 +64,17 @@ tags: [supermax, plan, implementation, nvim-runtime]
 > 产出首个可运行成果：用 mock/echo provider 跑通的完整 Chat 闭环。这也把横向栈的壳立起来。
 
 ### 实现
-- [ ] 建 `lua/maxa/runtime/{config,protocol,conversation,session,orchestrator,tools,mcp,skills,events,host/nvim,compat}` 目录 + import-guard（禁用 `codecompanion.*`/`mcphub.*`/`lua/util/hooks/*`）
-- [ ] events：类型化 event bus 最小模型（event_id/sequence/订阅/派发/失败隔离/幂等）
-- [ ] config：项目根绑定 + `.maxa/runtime.yaml` 读取/不可变快照（未知字段报错、凭据只读 env）；禁止回退到母仓库 `.supermax/`
-- [ ] schema：消息 content-part / usage / session / 错误码 最小集合
-- [ ] mock/echo provider（可回放录制流，可注入 delay/error/cancel）
-- [ ] 最小 Chat 视图：打开、输入、流式渲染、stop/close、provider/model 切换 UI
-- [ ] 最小会话状态机 + 消息循环（submit→start→stream→complete）
+- [x] 建 `lua/maxa/runtime/{config,protocol,conversation,session,orchestrator,tools,mcp,skills,events,host/nvim,compat}` 目录 + import-guard（禁用 `codecompanion.*`/`mcphub.*`/`lua/util/hooks/*`）
+- [x] events：类型化 event bus 最小模型（event_id/sequence/订阅/派发/失败隔离/幂等）
+- [x] config：项目根绑定 + `.maxa/runtime.yaml` 读取/不可变快照（未知字段报错、凭据只读 env）；禁止回退到母仓库 `.supermax/`
+- [x] schema：消息 content-part / usage / session / 错误码 最小集合
+- [x] mock/echo provider（可回放录制流，可注入 delay/error/cancel）
+- [x] 最小 Chat 视图：打开、输入、流式渲染、stop/close、provider/model 切换 UI
+- [x] 最小会话状态机 + 消息循环（submit→start→stream→complete）
 
 ### 伴随验证
-- [ ] 最接近验证：mock provider 驱动的流式往返、模型/provider 切换、stop/close 各跑通
-- [ ] minimum headless 冒烟（`NVIM_APPNAME=nvim-maxa nvim --headless`）
+- [x] 最接近验证：mock provider 驱动的流式往返、模型/provider 切换、stop/close 各跑通
+- [x] minimum headless 冒烟（`NVIM_APPNAME=nvim-maxa nvim --headless`）
 
 **本层 gate**：`:MaxaChat` 打开→输入→回车→看到流式回复→可 stop/close/切 model；无网络无 key 完整闭环。
 
@@ -85,21 +85,30 @@ tags: [supermax, plan, implementation, nvim-runtime]
 > 纵向：mock 换真实 provider。横向：消息模型/usage/配置/事件 case 增全。
 
 ### 实现
-- [ ] 消息模型扩展：system/project/context/image/reasoning/tool 全类型 + 提交校验（empty/context-only）
-- [ ] OpenAI Chat Completions 适配器（request/stream/tool/usage/cancel）
-- [ ] Anthropic Messages 适配器（system 分离、content-block、tool_use/result、thinking 保留）
-- [ ] OpenAI Responses 适配器（items、strict schema、tool-only stream）
-- [ ] Gemini native 适配器（`generateContent`/`streamGenerateContent`、functionCall/functionResponse；禁走 OpenAI 兼容端点）
-- [ ] config：provider 定义、capability（vision/tool/reasoning）、协议能力矩阵校验
-- [ ] events：RequestStarted/ResponseStarted/MessageDelta/ToolCall 事件case
-- [ ] schema：usage 归一（input/output/total/cache/reasoning，source/final）
+- [x] 消息模型扩展：system/project/context/image/reasoning/tool 全类型 + 提交校验（empty/context-only）
+- [x] OpenAI Chat Completions 适配器（request/stream/tool/usage/cancel）
+- [x] Anthropic Messages 适配器（system 分离、content-block、tool_use/result、thinking 保留）
+- [x] OpenAI Responses 适配器（items、strict schema、tool-only stream）
+- [x] Gemini native 适配器（`generateContent`/`streamGenerateContent`、functionCall/functionResponse；禁走 OpenAI 兼容端点）
+- [x] config：provider 定义、capability（vision/tool/reasoning）、协议能力矩阵校验
+- [x] events：RequestStarted/ResponseStarted/MessageDelta/ToolCall 事件case
+- [x] schema：usage 归一（input/output/total/cache/reasoning，source/final）
 
 ### 伴随验证（回归测试在关键点按价值补）
-- [ ] 四协议适配器对录制 fixture 的往返/流式/tool/usage/error/cancel 各跑通（closest validation）
-- [ ] 协议 fixture 关键时刻：tool-arguments-fragmented、tool-only-completed、thinking-signature、safety-block
-- [ ] import-guard 确认：protocol 测试不加载 codecompanion/mcphub
+- [x] 四协议适配器对录制 fixture 的往返/流式/tool/usage/error/cancel 各跑通（closest validation）
+- [x] 协议 fixture 关键时刻：tool-arguments-fragmented、tool-only-completed、thinking-signature、safety-block
+- [x] import-guard 确认：protocol 测试不加载 codecompanion/mcphub
 
 **本层 gate**：至少真实串通一个 provider 完整往返；四协议 fixture 组（P-*）在你配置可用范围内通过。
+
+> **阶段1 gate 声明（2026-08-04）**：✅ 通过。
+> 证据：`just test-protocol` → `PROTOCOL_RUNNER_OK fixtures=41`（38 手工 + 3 真实录制 live-stream）；
+> `just test-protocol-unit` → SSE 16 + TRANSPORT 67；`tests/protocol/live.lua` → `LIVE_OK`
+> （openai_chat/openai_responses/anthropic_messages 三协议真实 deepseek **非流 + 流式**完整往返，
+> 事件/usage 归一齐全，含 anthropic reasoning_delta）；`tests/config/verify.lua` → 72/72；
+> `tests/w8/chain.lua` → OK；`just smoke/lint/check` 全绿。gemini 仅本地 fixture（真实配置不可用范围内）。
+> 流式根因修复：plenary.job 按行分割交付 stdout（无换行），transport 流式路径补回 `"\n"`。
+> 细节见 `.supermax/drafts/phase1-implementation-plan.md` §0。
 
 ---
 

@@ -1,0 +1,45 @@
+# openai-chat/text-stream: basic streaming text completion.
+# Streamed SSE frames; content accumulates across deltas; finish_reason=stop;
+# [DONE] marks the end; the driver appends the terminal completed event.
+# Chunks are single-quoted scalars WITHOUT a trailing blank line; the driver
+# feeds sse:feed(chunk .. "\n\n") so each chunk dispatches exactly one frame.
+id: openai-chat/text-stream
+protocol: openai_chat
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Say hello in one line.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    messages:
+      - role: user
+        content: Say hello in one line.
+    stream: true
+    stream_options:
+      include_usage: true
+response:
+  chunks:
+    - 'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":123456,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}'
+    - 'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":123456,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}'
+    - 'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":123456,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}'
+    - 'data: [DONE]'
+  expected_events:
+    - message_delta
+    - message_delta
+    - finish_reason
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: Hello world
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: completed

@@ -1,0 +1,33 @@
+# gemini-native/safety-block: promptFeedback.blockReason (no candidates) is a
+# typed terminal provider failure, never silent empty success. The trailing
+# [DONE] arrives after the terminal and must be rejected (no second terminal).
+id: gemini-native/safety-block
+protocol: gemini
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Something harmful.
+  normalized_tools: []
+  provider_options:
+    model: gemini-2.5-flash
+  expected_body:
+    contents:
+      - role: user
+        parts:
+          - text: Something harmful.
+response:
+  chunks:
+    - 'data: {"promptFeedback":{"blockReason":"SAFETY","safetyRatings":[{"category":"HARM_CATEGORY_HATE_SPEECH","probability":"HIGH"}]}}'
+    - 'data: [DONE]'
+  expected_events:
+    - error
+  expected_message: {}
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: failed
+  expected_error:
+    code: provider
+    terminal: true

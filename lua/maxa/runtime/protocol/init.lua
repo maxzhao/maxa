@@ -1,37 +1,47 @@
 -- filepath: lua/maxa/runtime/protocol/init.lua
---- maxa runtime protocol layer: mock / echo providers (phase-0 scope).
+--- maxa runtime protocol layer: unified adapter interface + mock/echo providers
+--- + real-protocol adapter registry (phase-1 W2).
 ---
---- Scope (see .supermax/drafts/phase0-development-plan.md §5.5): this phase only
---- ships the mock and echo providers plus the shared provider adapter interface
---- (§4.9). Real four-protocol adapters (OpenAI Chat/Responses, Anthropic Messages,
---- Gemini native) and response normalization belong to phase 1 and are NOT
---- implemented here. `tools/mcp/skills/compat` remain placeholders in other subagents'
---- wave scope; do not implement them here.
+--- Scope (see .supermax/drafts/phase1-implementation-plan.md §4.1): this module
+--- ships the unified adapter interface that every provider conforms to
+--- (mock/echo today; real four-protocol adapters register in W4-W7 via
+--- `register_adapter`). `tools/mcp/skills/compat` remain placeholders in other
+--- subagents' wave scope; do not implement them here.
 ---
---- Shared provider interface (§4.9), aligned (read-only) to CodeCompanion's HTTP
---- adapter surface, but self-contained and never loading codecompanion.*:
+--- Unified adapter interface (plan §4.1):
 ---
----   provider = {
----     name     = "mock" | "echo",                        -- + future real providers
----     schema   = <schema table: declares model/stream/... params>,  -- validate(setup)
----     setup    = function(self, opts) -> self|err,      -- parse & normalize params
----     map_roles= function(self, messages) -> messages,  -- role/content normalization
----     chat_output = function(self, data, tools) -> lines,-- stream data -> render lines
----     format_data = function(self, data) -> table,      -- stream chunk/SSE parse
----     stream   = function(self, params, callback) -> handle, -- on_chunk/on_done/on_error
+---   adapter = {
+---     name          = "mock" | "echo" | <adapter name>,
+---     protocol      = "mock" | "echo" | config.PROTOCOLS value,
+---     capabilities  = { vision=bool, tools=bool, reasoning=bool }, -- capability matrix
+---     setup(self, opts) -> params | nil, err,      -- config normalization
+---     build_request(self, params, normalized) -> body, -- normalized -> provider body
+---     parse_stream(self, frame) -> normalized_event|nil, -- raw frame -> event
+---     parse_nonstream(self, body) -> normalized_event,   -- non-stream response -> event
+---     normalize_usage(self, raw) -> usage|nil,           -- provider usage -> snapshot
+---     stream(self, params, callbacks) -> handle,         -- { cancel, active }
 ---   }
 ---
----  * stream callback contract: callback is a table/object with the optional
----    three-state callbacks
----      on_chunk(delta):   incremental text delta (string) as it streams
----      on_done():         terminal success (exactly once)
----      on_error(err):     terminal failure, typed error per §4.6; exactly once
----    Exactly one terminal callback (on_done xor on_error) fires per stream.
----  * stream returns a control handle:
----      { cancel = function(cancelled_cb?) -> boolean, active = boolean }
----    invoking handle.cancel() requests an ordered stop: it aborts remaining
----    chunks and, if a terminal callback has not yet fired, fires on_error with a
----    terminal CANCELLED error (exactly once).
+--- Normalized event stream (protocol.normalize): adapters emit
+---   response_started / message_delta / reasoning_delta / tool_call_started /
+---   tool_args_delta / tool_call_completed / usage_updated / finish_reason /
+---   error / completed. The orchestrator consumes only these events.
+---
+--- stream callback contract:
+---   callbacks = {
+---     on_event(event):   normalized event (see normalize.lua M.events)
+---     on_done():         terminal success (exactly once)
+---     on_error(err):     terminal failure, typed error per §4.6; exactly once
+---   }
+---   Exactly one terminal callback (on_done xor on_error) fires per stream.
+---   `on_chunk` is kept as a raw-text fallback for legacy drivers (when
+---   `on_event` is absent, raw chunks are delivered as-is).
+---
+--- stream returns a control handle:
+---   { cancel = function(cancelled_cb?) -> boolean, active = boolean }
+---   handle.cancel() requests an ordered stop: it aborts remaining chunks and,
+---   if a terminal callback has not yet fired, fires on_error with a terminal
+---   CANCELLED error (exactly once).
 ---
 --- Injection (mock/echo, see §4.9): opts.delay (ms between chunks), opts.error
 --- (inject a provider failure exactly once after opts.error_at chunks), opts.cancel
@@ -39,10 +49,12 @@
 --- a captured chunk sequence deterministically for headless/floating verification.
 ---
 --- Topology: schema -> protocol. This module depends only on
---- lua/maxa/runtime/schema (for typed errors + usage shape). It never loads
---- codecompanion.* / mcphub.* / lua/util/hooks/*.
+--- lua/maxa/runtime/schema + lua/maxa/runtime/protocol/normalize (typed errors,
+--- usage shape, normalized events). It never loads codecompanion.* / mcphub.* /
+--- lua/util/hooks/*.
 
 local schema = require("maxa.runtime.schema")
+local normalize = require("maxa.runtime.protocol.normalize")
 
 -- LazyVim ecosystem dependency (allowed; NOT a codecompanion/mcphub/hooks import).
 -- plenary.async drives the async streaming coroutine. Its core module only loads
@@ -60,7 +72,8 @@ local M = {}
 
 M.name = "protocol"
 
---- Provider name constants (future real adapters register here in phase 1).
+--- Provider name constants (mock/echo are the phase-0 local providers; real
+--- adapters register by protocol name via M.register_adapter).
 M.providers = {
   mock = "mock",
   echo = "echo",
@@ -377,16 +390,22 @@ local function validate_setup(provider, schema_def, params)
   return true, nil
 end
 
---- Provider factory. Both `mock` and `echo` share this base so their interfaces
---- stay identical (future real providers conform to the same surface).
+--- Adapter factory for the local mock/echo providers. Both share this base so
+--- their unified adapter interface stays identical (real four-protocol adapters
+--- register in W4-W7 through M.register_adapter with the same surface).
 ---@param name "mock"|"echo"
----@return table provider object
+---@return table adapter object
 local function make_provider(name)
   local provider = {}
 
   provider.name = name
-  -- Declared setup schema (subset of §4.9: model/stream options). Phase 0 keeps it
-  -- minimal; phase 1 expands with real adapter parameters.
+  -- Protocol identifier: mock/echo are their own local protocol names (they are
+  -- NOT config.PROTOCOLS values; config resolves those through get_adapter).
+  provider.protocol = name
+  -- Capability declaration (config capability-matrix checks real protocols;
+  -- mock/echo declare no vision/tools/reasoning).
+  provider.capabilities = { vision = false, tools = false, reasoning = false }
+  -- Declared setup schema (subset of §4.9: model/stream options).
   provider.schema = {
     model = { type = "string", optional = true, default = "mock-model" },
     delay = { type = "integer", optional = true, default = 0 },
@@ -395,7 +414,7 @@ local function make_provider(name)
   }
 
   --- Parse and normalize params; returns normalized params, or nil+error on
-  --- validation failure (§4.9 setup).
+  --- validation failure (unified adapter `setup`).
   ---@param opts table caller-supplied params
   ---@return table|nil params normalized params
   ---@return nil|table|string err validation error
@@ -413,46 +432,120 @@ local function make_provider(name)
     return params, nil
   end
 
-  --- Role/content normalization (§4.9 map_roles). mock/echo pass through role as-is
-  --- (single normalized role space in phase 0); real adapters map to provider roles.
-  ---@param messages table normalized message list
-  ---@return table normalized messages (identity-equal pass-through)
-  function provider.map_roles(self, messages)
-    return messages
-  end
-
-  --- Render a stream data piece to chat display lines (§4.9 chat_output).
-  --- mock/echo: a single text chunk renders as one line entry.
-  ---@param data string|table chunk or formatted data shape
-  ---@return table lines array of render line strings
-  function provider.chat_output(self, data, tools)
-    local text = type(data) == "string" and data or (data and data.delta) or ""
-    if text == "" then
-      return {}
+  --- Build the provider request body from normalized parts (unified adapter
+  --- `build_request`). mock/echo produce a deterministic local body carrying a
+  --- parts projection (role + text parts) so live/fixture validation can compare
+  --- it against expected bodies.
+  ---@param params table setup params (model/delay)
+  ---@param normalized table { messages=table[], tools=table[] } normalized parts messages
+  ---@return table body provider request body
+  function provider.build_request(self, params, normalized)
+    normalized = normalized or {}
+    local messages = {}
+    for i, msg in ipairs(normalized.messages or {}) do
+      local text_parts = {}
+      if type(msg.content) == "table" then
+        for _, part in ipairs(msg.content) do
+          if part.type == "text" then
+            text_parts[#text_parts + 1] = part.text or ""
+          elseif part.type == "reasoning" then
+            text_parts[#text_parts + 1] = ("[reasoning:%d]"):format(#(part.content or ""))
+          elseif part.type == "tool_call" then
+            text_parts[#text_parts + 1] = ("[tool:%s]"):format(tostring(part.name))
+          elseif part.type == "tool_result" then
+            text_parts[#text_parts + 1] = ("[tool_result:%s]"):format(tostring(part.status))
+          elseif part.type == "image" then
+            text_parts[#text_parts + 1] = ("[image:%s]"):format(tostring(part.mime))
+          elseif part.type == "context_ref" then
+            text_parts[#text_parts + 1] = ("[context:%s]"):format(tostring(part.item_id))
+          end
+        end
+      end
+      messages[i] = {
+        role = msg.role,
+        content = table.concat(text_parts),
+      }
     end
-    return { text }
+    return {
+      model = params and params.model or "mock-model",
+      provider = self.name,
+      messages = messages,
+      tools = normalized.tools or {},
+    }
   end
 
-  --- Parse a raw stream chunk into a normalized shape (§4.9 format_data).
-  --- mock/echo produce a simple `{ delta = <string> }` envelope; real SSE parsers
-  --- in phase 1 normalize events to this same envelope.
-  ---@param data any raw chunk
-  ---@return table { delta=string }
-  function provider.format_data(self, data)
-    if type(data) == "string" then
-      return { delta = data }
+  --- Parse a raw stream chunk into a normalized event (unified adapter
+  --- `parse_stream`). mock/echo chunks are plain text: each chunk becomes a
+  --- `message_delta` event. Real adapters feed SSE frames through the same
+  --- signature in W4-W7.
+  ---@param frame any raw chunk (string) or normalized envelope table
+  ---@return table|nil event normalized event (nil when the frame carries no content)
+  function provider.parse_stream(self, frame)
+    if type(frame) == "string" then
+      if frame == "" then
+        return nil
+      end
+      return normalize.message_delta(frame)
     end
-    return { delta = (data and data.delta) or "" }
+    if type(frame) == "table" and type(frame.type) == "string" and normalize.events[frame.type] then
+      -- W8 additive passthrough: an already-normalized event table is delivered
+      -- verbatim. This lets headless full-chain tests inject reasoning/tool_call/
+      -- usage events through the SAME unified stream surface (mock/echo drive the
+      -- UI/smoke path; string chunks keep their exact phase-0 behavior).
+      return frame
+    end
+    if type(frame) == "table" and frame.delta ~= nil then
+      return normalize.message_delta(frame.delta)
+    end
+    return nil
   end
 
-  --- Drive a scripted stream over a callback object (§4.9 stream).
+  --- Parse a non-stream response body into a normalized event (unified adapter
+  --- `parse_nonstream`). mock/echo mirror the deterministic echo text.
+  ---@param body table response body (or request body echo)
+  ---@return table event normalized event
+  function provider.parse_nonstream(self, body)
+    local text = (type(body) == "table" and type(body.text) == "string" and body.text)
+      or ("Hello from maxa " .. self.name .. " provider.")
+    return normalize.message_delta(text)
+  end
+
+  --- Normalize a provider usage object (unified adapter `normalize_usage`).
+  --- mock/echo report no provider usage: nil signals the orchestrator to fall
+  --- back to a local estimate.
+  ---@param raw any provider usage object (unused here)
+  ---@return table|nil usage nil (no provider-reported usage)
+  function provider.normalize_usage(self, raw)
+    return nil
+  end
+
+  --- Drive a scripted stream over the unified callback object (unified adapter
+  --- `stream`). Raw chunks are converted through parse_stream into normalized
+  --- events; when the caller only supplies the legacy on_chunk, raw text is
+  --- delivered as-is (backward-compatible driver surface).
   ---@param params table|nil { chunks?, recording?, delay?, error?, error_at?,
   ---                          cancel?, cancel_at?, async? }
-  ---@param callback table { on_chunk?=fun(delta), on_done?=fun(), on_error?=fun(err) }
+  ---@param callbacks table { on_event?=fun(event), on_done?=fun(), on_error?=fun(err) }
   ---@return table handle { active=bool, cancel=fun(on_cancelled?):bool, last_error?=table }
-  function provider.stream(self, params, callback)
+  function provider.stream(self, params, callbacks)
+    callbacks = callbacks or {}
     local spec = build_stream_spec(params)
-    return drive_stream(generate_script(spec), callback, {
+    -- Wrap raw chunks into normalized events unless a legacy on_chunk driver is
+    -- the caller (then deliver raw text directly).
+    local driver_callbacks = callbacks
+    if callbacks.on_event then
+      driver_callbacks = {
+        on_chunk = function(delta)
+          local event = self:parse_stream(delta)
+          if event then
+            callbacks.on_event(event)
+          end
+        end,
+        on_done = callbacks.on_done,
+        on_error = callbacks.on_error,
+      }
+    end
+    return drive_stream(generate_script(spec), driver_callbacks, {
       async = params and params.async,
     })
   end
@@ -464,11 +557,35 @@ end
 -- Provider registry / constructors
 ------------------------------------------------------------
 
---- Instances cache (singleton per name) for easy reuse in headless/normal usage.
---- Callers that need isolation can call M.new(name) directly.
+-- Instances cache (singleton per name) for easy reuse in headless/normal usage.
+-- Callers that need isolation can call M.new(name) directly.
 local instances = {}
 
---- Create a fresh provider instance.
+--- Real-protocol adapter registry (phase-1 W4-W7 populate). Adapters register
+--- under the config protocol enum name (`config.PROTOCOLS`); `config.resolve_provider`
+--- binds through `get_adapter`. Until an adapter is registered for a protocol the
+--- lookup returns nil and the caller keeps the unbound record (`record:bind`).
+--- The local mock/echo adapters are registered under their own names by M.new.
+M.adapters = {}
+
+--- Register a protocol adapter instance under its protocol name.
+---@param protocol string one of config.PROTOCOLS (openai_chat/openai_responses/anthropic_messages/gemini)
+---@param adapter table adapter object (unified adapter interface)
+---@return table adapter
+function M.register_adapter(protocol, adapter)
+  M.adapters[protocol] = adapter
+  return adapter
+end
+
+--- Get the registered adapter for a protocol name (nil when not yet registered).
+---@param protocol string protocol name
+---@return table|nil adapter
+function M.get_adapter(protocol)
+  return M.adapters[protocol]
+end
+
+--- Create a fresh provider instance (mock/echo). Also registers the instance
+--- under its name so get_adapter("mock")/get_adapter("echo") resolve locally.
 ---@param name string provider name (M.providers.*)
 ---@return table provider
 function M.new(name)
@@ -476,7 +593,9 @@ function M.new(name)
     name == M.providers.mock or name == M.providers.echo,
     ("protocol.new: unknown provider %q (expected mock|echo)"):format(tostring(name))
   )
-  return make_provider(name)
+  local provider = make_provider(name)
+  M.adapters[name] = provider
+  return provider
 end
 
 --- Get the process-wide singleton provider instance.

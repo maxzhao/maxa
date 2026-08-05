@@ -61,13 +61,15 @@ local M = {}
 
 M.name = "host.nvim"
 
--- Defaults (phase-0 mock/echo provider; real adapters arrive in phase 1).
+-- Defaults (mock/echo providers; real adapters bind through config in W9).
 M.DEFAULT_PROVIDER = protocol.providers.mock or "mock"
 M.DEFAULT_MODEL = "mock-model"
+-- ui.show_reasoning: false => reasoning renders as a collapsed summary line.
+M.DEFAULT_SHOW_REASONING = false
 
 --- Override the view defaults from the maxa config.
 --- Called by `require("maxa").setup`; keeps host free of a maxa/init circular require.
----@param opts? table { provider?: string, model?: string }
+---@param opts? table { provider?: string, model?: string, show_reasoning?: boolean }
 ---@return table self
 function M.set_defaults(opts)
   opts = opts or {}
@@ -76,6 +78,9 @@ function M.set_defaults(opts)
   end
   if opts.model then
     M.DEFAULT_MODEL = opts.model
+  end
+  if opts.show_reasoning ~= nil then
+    M.DEFAULT_SHOW_REASONING = not not opts.show_reasoning
   end
   return M
 end
@@ -88,6 +93,10 @@ M.UI = {
   assistant = "Assistant",
   system = "System",
   tool = "Tool",
+  -- W8 parts rendering labels.
+  reasoning_open = "[reasoning]",
+  reasoning_summary_fmt = "[reasoning %d chars]",
+  tool_call_fmt = "[tool %s] (%s)",
   status_idle = "status: idle",
   status_busy = "status: busy (streaming…)",
   status_completed = "status: completed",
@@ -132,9 +141,11 @@ function M.new(opts)
     model = opts.model or M.DEFAULT_MODEL,
     events = bus,
     provider_params = opts.provider_params or {},
-    items = {}, -- ordered message model { role=string, text=string }
+    items = {}, -- ordered message model { role=string, text=string,
+    --             reasoning=string, tool_calls=table[] }
     status = "idle", -- idle | busy | completed | failed | cancelled | closed
-    usage = nil, -- final synthetic usage on completed (phase-0)
+    usage = nil, -- latest/final normalized usage (W8: schema.usage snapshot)
+    show_reasoning = (opts.show_reasoning == nil) and M.DEFAULT_SHOW_REASONING or not not opts.show_reasoning,
     errors = {}, -- non-terminal informational errors surfaced to the user
     -- UI buffers/windows (nil until open()).
     _opened = false,
@@ -183,11 +194,34 @@ function View:_subscribe()
     self._subs[#self._subs + 1] = off
   end
 
+  -- W8: request.started arrives paired with response.started; _begin_stream is
+  -- idempotent (status=busy, assistant item reused), so both subscriptions are safe.
+  sub(self.events.events.request_started or "request.started", function()
+    self:_begin_stream()
+  end)
   sub(self.events.events.response_started or "response.started", function()
     self:_begin_stream()
   end)
   sub(self.events.events.message_delta or "message.delta", function(payload)
     self:_on_delta(payload)
+  end)
+  -- W8 parts events drive the parts renderer.
+  sub(self.events.events.reasoning_delta or "reasoning.delta", function(payload)
+    self:_on_reasoning_delta(payload)
+  end)
+  sub(self.events.events.tool_call_started or "tool_call.started", function(payload)
+    self:_on_tool_call_started(payload)
+  end)
+  sub(self.events.events.tool_call_delta or "tool_call.delta", function()
+    -- Argument fragments do not change the status-line projection; render is
+    -- driven by started/completed. Subscribed (no-op) so the bus stays warm for
+    -- later phases that show argument previews.
+  end)
+  sub(self.events.events.tool_call_completed or "tool_call.completed", function(payload)
+    self:_on_tool_call_completed(payload)
+  end)
+  sub(self.events.events.usage_updated or "usage.updated", function(payload)
+    self:_on_usage_updated(payload)
   end)
   -- Terminal success.
   sub(self.events.events.response_completed or "response.completed", function(payload)
@@ -219,16 +253,28 @@ function View:_subscribe()
   end)
 end
 
+---@private Ensure the in-flight assistant item exists and return it. Creates a
+--- parts-capable item (text/reasoning/tool_calls) when the last item is not an
+--- assistant turn (e.g. right after the user turn was appended).
+function View:_assistant_item()
+  local last = self.items[#self.items]
+  if last and last.role == "assistant" then
+    return last
+  end
+  local item = { role = "assistant", text = "", reasoning = "", tool_calls = {} }
+  self.items[#self.items + 1] = item
+  return item
+end
+
 ---@private Reset stream-state before a new assistant turn starts.
 function View:_begin_stream()
   if self.status == "closed" then
     return
   end
   self.status = "busy"
-  -- Guard: do not duplicate the Assistant header if a partial one already exists.
-  local last = self.items[#self.items]
-  if last and last.role == "assistant" and last.pending then
-    last.pending = nil
+  local item = self:_assistant_item()
+  if item.pending then
+    item.pending = nil
   end
   self:_render()
 end
@@ -238,13 +284,80 @@ function View:_on_delta(payload)
   if self.status == "closed" then
     return
   end
+  local item = self:_assistant_item()
   local text = (payload and payload.text) or (payload and payload.delta) or ""
-  local last = self.items[#self.items]
-  if last and last.role == "assistant" then
-    last.text = text
-    last.pending = nil
+  if text ~= "" then
+    if payload and payload.text then
+      item.text = text -- full accumulated text replaces (orchestrator always sends it)
+    else
+      item.text = (item.text or "") .. text
+    end
+  end
+  item.pending = nil
+  self:_render()
+end
+
+---@private Incremental reasoning update from reasoning.delta (W8).
+function View:_on_reasoning_delta(payload)
+  if self.status == "closed" then
+    return
+  end
+  local item = self:_assistant_item()
+  if payload and type(payload.text) == "string" then
+    item.reasoning = payload.text -- full accumulated reasoning wins when provided
   else
-    self.items[#self.items + 1] = { role = "assistant", text = text }
+    item.reasoning = (item.reasoning or "") .. ((payload and payload.delta) or "")
+  end
+  self:_render()
+end
+
+---@private Track a started tool call (W8; recorded only, never executed).
+function View:_on_tool_call_started(payload)
+  if self.status == "closed" then
+    return
+  end
+  local item = self:_assistant_item()
+  local call_id = payload and payload.call_id
+  local found = false
+  for _, c in ipairs(item.tool_calls or {}) do
+    if c.call_id == call_id then
+      found = true
+      break
+    end
+  end
+  if not found and call_id then
+    item.tool_calls[#item.tool_calls + 1] = {
+      call_id = call_id,
+      name = (payload and payload.name) or "?",
+      status = "started",
+    }
+  end
+  self:_render()
+end
+
+---@private Mark a tool call completed (W8).
+function View:_on_tool_call_completed(payload)
+  if self.status == "closed" then
+    return
+  end
+  local item = self:_assistant_item()
+  local call_id = payload and payload.call_id
+  for _, c in ipairs(item.tool_calls or {}) do
+    if c.call_id == call_id then
+      c.status = "completed"
+    end
+  end
+  self:_render()
+end
+
+---@private Track the latest normalized usage snapshot (W8; final one wins on
+--- response.completed, so this only feeds the live status line).
+function View:_on_usage_updated(payload)
+  if self.status == "closed" then
+    return
+  end
+  if payload and payload.usage then
+    self.usage = payload.usage
   end
   self:_render()
 end
@@ -558,6 +671,27 @@ function View:_build_lines()
     local role_label = M.UI[item.role] or item.role
     lines[#lines + 1] = ""
     lines[#lines + 1] = role_label
+    if item.role == "assistant" then
+      -- W8 reasoning part: collapsed summary by default (ui.show_reasoning=false);
+      -- full content when the user opted in.
+      local reasoning = item.reasoning or ""
+      if reasoning ~= "" then
+        if self.show_reasoning then
+          lines[#lines + 1] = M.UI.reasoning_open
+          for part in reasoning:gmatch("([^\n]*)\n?") do
+            if part ~= "" or part:find("\n") then
+              lines[#lines + 1] = part
+            end
+          end
+        else
+          lines[#lines + 1] = M.UI.reasoning_summary_fmt:format(#reasoning)
+        end
+      end
+      -- W8 tool_call parts: name + status summary line (never executed here).
+      for _, tc in ipairs(item.tool_calls or {}) do
+        lines[#lines + 1] = M.UI.tool_call_fmt:format(tc.name or "?", tc.status or "started")
+      end
+    end
     if item.text and item.text ~= "" then
       for part in tostring(item.text):gmatch("([^\n]*)\n?") do
         if part ~= "" or part:find("\n") then
@@ -588,10 +722,22 @@ function View:_status_line()
     return M.UI.status_busy
   end
   if self.status == "completed" then
+    -- W8 normalized usage status line: input/output/total (unknown stays absent).
     local usage = self.usage
-    local tok = usage and usage.total_tokens
-    if tok then
-      return M.UI.status_completed .. string.format(" (tokens=%d)", tok)
+    local bits = {}
+    if usage then
+      if usage.input_tokens ~= nil then
+        bits[#bits + 1] = ("in=%d"):format(usage.input_tokens)
+      end
+      if usage.output_tokens ~= nil then
+        bits[#bits + 1] = ("out=%d"):format(usage.output_tokens)
+      end
+      if usage.total_tokens ~= nil then
+        bits[#bits + 1] = ("total=%d"):format(usage.total_tokens)
+      end
+    end
+    if #bits > 0 then
+      return M.UI.status_completed .. " (" .. table.concat(bits, " ") .. ")"
     end
     return M.UI.status_completed
   end

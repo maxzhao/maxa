@@ -1,0 +1,65 @@
+# openai-chat/tool-result-continuation: request-side mapping of an assistant
+# tool-call message and a tool-result message into the provider body, then a
+# normal text continuation. Assistant tool_calls carry ONLY id/type/function;
+# tool results become {role:"tool", tool_call_id, content} entries.
+id: openai-chat/tool-result-continuation
+protocol: openai_chat
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: What is the weather in London?
+    - role: assistant
+      content:
+        - type: tool_call
+          call_id: call_1
+          name: get_weather
+          arguments: '{"location": "London"}'
+    - role: tool
+      content:
+        - type: tool_result
+          call_id: call_1
+          status: success
+          content: 15C clear skies
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    messages:
+      - role: user
+        content: What is the weather in London?
+      - role: assistant
+        content: ""
+        tool_calls:
+          - id: call_1
+            type: function
+            function:
+              name: get_weather
+              arguments: '{"location": "London"}'
+      - role: tool
+        tool_call_id: call_1
+        content: 15C clear skies
+    stream: true
+    stream_options:
+      include_usage: true
+response:
+  chunks:
+    - 'data: {"id":"chatcmpl-5","object":"chat.completion.chunk","created":123460,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"role":"assistant","content":"The weather in London is 15 degrees and clear."},"finish_reason":null}]}'
+    - 'data: {"id":"chatcmpl-5","object":"chat.completion.chunk","created":123460,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}'
+    - 'data: [DONE]'
+  expected_events:
+    - message_delta
+    - finish_reason
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: The weather in London is 15 degrees and clear.
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: completed

@@ -1,0 +1,82 @@
+# openai-responses/tool-only-completed: a function_call output item completes
+# with NO assistant text (tool-only response is a valid completion). The call
+# is collected from the output_item.done frame (no arguments delta stream):
+# started + completed with the item's encoded arguments.
+id: openai-responses/tool-only-completed
+protocol: openai_responses
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: What is the weather in London?
+  normalized_tools:
+    - type: function
+      function:
+        name: get_weather
+        description: Get the current weather for a location
+        parameters:
+          type: object
+          properties:
+            location:
+              type: string
+          required:
+            - location
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    input:
+      - type: message
+        role: user
+        content:
+          - type: input_text
+            text: What is the weather in London?
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: Get the current weather for a location
+          parameters:
+            type: object
+            additionalProperties: false
+            properties:
+              location:
+                type: string
+            required:
+              - location
+    store: false
+    stream: true
+response:
+  chunks:
+    - "event: response.created\ndata: {\"id\":\"resp_3\",\"object\":\"response\",\"created_at\":123458,\"status\":\"in_progress\",\"model\":\"deepseek-v4-flash\",\"output\":[]}\n\n"
+    - "event: response.output_item.added\ndata: {\"output_index\":0,\"output_item\":{\"id\":\"fc_1\",\"call_id\":\"call_1\",\"type\":\"function_call\",\"status\":\"in_progress\",\"name\":\"get_weather\",\"arguments\":\"\"}}\n\n"
+    - "event: response.output_item.done\ndata: {\"output_index\":0,\"output_item\":{\"id\":\"fc_1\",\"call_id\":\"call_1\",\"type\":\"function_call\",\"status\":\"completed\",\"name\":\"get_weather\",\"arguments\":\"{\\\"location\\\":\\\"London\\\"}\"}}\n\n"
+    - "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_3\",\"object\":\"response\",\"status\":\"completed\",\"output\":[{\"id\":\"fc_1\",\"call_id\":\"call_1\",\"type\":\"function_call\",\"status\":\"completed\",\"name\":\"get_weather\",\"arguments\":\"{\\\"location\\\":\\\"London\\\"}\"}],\"usage\":{\"input_tokens\":8,\"output_tokens\":2,\"total_tokens\":10}}}\n\n"
+  expected_events:
+    - response_started
+    - tool_call_started
+    - tool_call_completed
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: tool_call
+        call_id: call_1
+        name: get_weather
+        arguments: '{"location":"London"}'
+  expected_tool_calls:
+    - call_id: call_1
+      name: get_weather
+      arguments:
+        location: London
+  expected_usage:
+    input_tokens: 8
+    output_tokens: 2
+    total_tokens: 10
+    source: provider_final
+    final: true
+  expected_terminal: completed

@@ -1,0 +1,53 @@
+# anthropic/text-nonstream: non-stream message body; also covers system message
+# extraction (system -> `system` text blocks, removed from `messages`).
+id: anthropic/text-nonstream
+protocol: anthropic_messages
+mode: non_streamed
+request:
+  normalized_messages:
+    - role: system
+      content:
+        - type: text
+          text: "You are a terse assistant."
+    - role: user
+      content:
+        - type: text
+          text: "Say hello"
+  normalized_tools: []
+  provider_options:
+    model: "deepseek-v4-flash"
+  expected_body:
+    model: "deepseek-v4-flash"
+    max_tokens: 4096
+    stream: true
+    system:
+      - type: text
+        text: "You are a terse assistant."
+    messages:
+      - role: user
+        content:
+          - type: text
+            text: "Say hello"
+response:
+  # non_streamed: chunks[1] is the raw JSON response body.
+  chunks:
+    - "{\"type\":\"message\",\"id\":\"msg_02\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Hello world\"}],\"model\":\"deepseek-v4-flash\",\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":6,\"output_tokens\":2}}"
+  expected_events:
+    - response_started
+    - message_delta
+    - finish_reason
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: "Hello world"
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 6
+    output_tokens: 2
+    total_tokens: 8
+    source: provider_final
+    final: true
+  expected_terminal: completed

@@ -1,0 +1,56 @@
+# gemini-native/usage-metadata: full cumulative usageMetadata on the final
+# envelope. Every provider token field is translated into the normalized
+# snapshot; modality detail arrays and serviceTier are preserved verbatim under
+# usage.provider_metadata (native field spellings, e.g. tokenCount).
+id: gemini-native/usage-metadata
+protocol: gemini
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Count my tokens.
+  normalized_tools: []
+  provider_options:
+    model: gemini-2.5-flash
+  expected_body:
+    contents:
+      - role: user
+        parts:
+          - text: Count my tokens.
+response:
+  chunks:
+    - 'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Done"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":40,"candidatesTokenCount":30,"toolUsePromptTokenCount":10,"thoughtsTokenCount":5,"totalTokenCount":130,"promptTokensDetails":[{"modality":"TEXT","tokenCount":100}],"candidatesTokensDetails":[{"modality":"TEXT","tokenCount":30}],"serviceTier":"flex"}}'
+    - 'data: [DONE]'
+  expected_events:
+    - response_started
+    - message_delta
+    - finish_reason
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: Done
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 100
+    output_tokens: 30
+    total_tokens: 130
+    provider_reported_total: 130
+    cached_input_tokens: 40
+    reasoning_tokens: 5
+    tool_tokens: 10
+    source: provider_final
+    final: true
+    provider_metadata:
+      service_tier: flex
+      prompt_tokens_details:
+        - modality: TEXT
+          tokenCount: 100
+      candidates_tokens_details:
+        - modality: TEXT
+          tokenCount: 30
+  expected_terminal: completed

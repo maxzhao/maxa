@@ -1,0 +1,46 @@
+# openai-chat/text-nonstream: non-streamed completion.
+# The request omits stream (provider_options.stream=false); the response body
+# is a single JSON object carried as chunks[1] (no SSE framing). Usage is
+# provider_final (full body usage, final=true).
+id: openai-chat/text-nonstream
+protocol: openai_chat
+mode: non_streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Explain simplicity.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: false
+  expected_body:
+    model: deepseek-v4-flash
+    messages:
+      - role: user
+        content: Explain simplicity.
+response:
+  chunks:
+    - '{"id":"chatcmpl-2","object":"chat.completion","created":123457,"model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"Elegant simplicity."},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17,"prompt_tokens_details":{"cached_tokens":3},"completion_tokens_details":{"reasoning_tokens":2}}}'
+  expected_events:
+    - message_delta
+    - finish_reason
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: Elegant simplicity.
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 12
+    output_tokens: 5
+    total_tokens: 17
+    cached_input_tokens: 3
+    reasoning_tokens: 2
+    provider_reported_total: 17
+    source: provider_final
+    final: true
+  expected_terminal: completed

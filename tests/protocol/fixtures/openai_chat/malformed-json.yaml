@@ -1,0 +1,44 @@
+# openai-chat/malformed-json: a frame carrying invalid JSON terminates the
+# stream with a typed protocol error. The trailing [DONE] must NOT convert the
+# failure into success (contract: [DONE]/EOF is not completion by itself when
+# an earlier typed failure exists); the driver appends no completed event.
+id: openai-chat/malformed-json
+protocol: openai_chat
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Repeat after me.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    messages:
+      - role: user
+        content: Repeat after me.
+    stream: true
+    stream_options:
+      include_usage: true
+response:
+  chunks:
+    - 'data: {"id":"chatcmpl-7","object":"chat.completion.chunk","created":123462,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"role":"assistant","content":"partial "},"finish_reason":null}]}'
+    - 'data: {"id":"chatcmpl-7","object":"chat.completion.chunk","created":123462,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"content":"x"}}'
+    - 'data: [DONE]'
+  expected_events:
+    - message_delta
+    - error
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: "partial "
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: failed
+  expected_error:
+    code: protocol
+    terminal: true

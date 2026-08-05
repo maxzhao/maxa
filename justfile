@@ -42,6 +42,24 @@ smoke: (setup)
     # missing. Use `-c` + vim.defer_fn, which enters the loop and waits 2s for lazy.
     NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() d='{{root}}/scripts/smoke.lua' local ok=pcall(dofile,d) vim.cmd('qa!') end, 2000)"
 
+# Headless protocol fixture runner (phase-1 W1): loads tests/protocol/fixtures,
+# validates envelopes, runs the comparison-helper self-test, and proves the W1
+# infrastructure modules (sse/transport) load. Offline; no network or key.
+# Same lazy-wait pattern as smoke. Exit 0 on success; failure prints details
+# and exits 1 (the runner itself calls :cq on failure).
+test-protocol: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/protocol/runner.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
+# Headless unit tests for the W1 protocol infrastructure (sse parser + curl
+# transport with a fake curl; no network). Offline and deterministic.
+test-protocol-unit: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local s='{{root}}/tests/protocol/unit_sse.lua' local a=pcall(dofile,s) if not a then vim.cmd('cq') return end local t='{{root}}/tests/protocol/unit_transport.lua' local b=pcall(dofile,t) vim.cmd(b and 'qa!' or 'cq') end, 2000)"
+# Headless W3 config verification: full runtime.yaml schema (struct/map/any), provider
+# cross-field checks (default existence, protocol capability matrix), credential guard,
+# resolve_provider normalization + adapter bind interface. Offline; no network or key.
+test-config: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/config/verify.lua' local ok,res=pcall(dofile,d) if not (ok and res) then vim.cmd('cq') return end vim.cmd('qa!') end, 2000)"
+
 # stylua check
 lint:
     stylua --check lua/maxa

@@ -1,0 +1,48 @@
+# gemini-native/text-stream: basic streaming text completion.
+# Two SSE envelopes (each one data frame; the driver appends the terminating
+# blank line), cumulative usageMetadata per envelope, finishReason=STOP on the
+# final envelope, [DONE] end marker, terminal completed appended by the driver.
+id: gemini-native/text-stream
+protocol: gemini
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Hello Gemini
+  normalized_tools: []
+  provider_options:
+    model: gemini-2.5-flash
+  expected_body:
+    contents:
+      - role: user
+        parts:
+          - text: Hello Gemini
+response:
+  chunks:
+    - 'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello "}]},"finishReason":null}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":1,"totalTokenCount":6}}'
+    - 'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"world"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":2,"totalTokenCount":7}}'
+    - 'data: [DONE]'
+  expected_events:
+    - response_started
+    - message_delta
+    - usage_updated
+    - message_delta
+    - finish_reason
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: Hello world
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 5
+    output_tokens: 2
+    total_tokens: 7
+    provider_reported_total: 7
+    source: provider_final
+    final: true
+  expected_terminal: completed

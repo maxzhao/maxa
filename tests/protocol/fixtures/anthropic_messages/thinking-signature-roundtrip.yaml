@@ -1,0 +1,62 @@
+# anthropic/thinking-signature-roundtrip: thinking block with signature delta;
+# reasoning text/signature flow through reasoning_delta events so the final
+# message keeps a reasoning part with the round-trip signature.
+id: anthropic/thinking-signature-roundtrip
+protocol: anthropic_messages
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: "Think step by step and answer."
+  normalized_tools: []
+  provider_options:
+    model: "deepseek-v4-flash"
+  expected_body:
+    model: "deepseek-v4-flash"
+    max_tokens: 4096
+    stream: true
+    messages:
+      - role: user
+        content:
+          - type: text
+            text: "Think step by step and answer."
+response:
+  chunks:
+    - "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_03\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"deepseek-v4-flash\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":8,\"output_tokens\":1}}}\n\n"
+    - "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Let me think\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\" step by step\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig_01\"}}\n\n"
+    - "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+    - "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"The answer is 42.\"}}\n\n"
+    - "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n"
+    - "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n\n"
+    - "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+  expected_events:
+    - response_started
+    - reasoning_delta
+    - reasoning_delta
+    - reasoning_delta
+    - message_delta
+    - finish_reason
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: reasoning
+        content: "Let me think step by step"
+        signature: "sig_01"
+      - type: text
+        text: "The answer is 42."
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 8
+    output_tokens: 5
+    total_tokens: 13
+    source: provider_final
+    final: true
+  expected_terminal: completed

@@ -1,0 +1,110 @@
+# openai-chat/multiple-tool-calls-interleaved: two tool calls whose fragments
+# are interleaved in the same frames, keyed by protocol index. The second call
+# omits its provider id -> synthetic id `call_<created>_<index>` with
+# id_source="synthetic". finish_reason=tool_calls completes both (insertion
+# order) before the reason event. Tool-only response (no text content).
+id: openai-chat/multiple-tool-calls-interleaved
+protocol: openai_chat
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Weather in London and time in Paris.
+  normalized_tools:
+    - type: function
+      function:
+        name: get_weather
+        description: Get the current weather for a location
+        parameters:
+          type: object
+          properties:
+            location:
+              type: string
+          required:
+            - location
+    - type: function
+      function:
+        name: get_time
+        description: Get the local time for a city
+        parameters:
+          type: object
+          properties:
+            city:
+              type: string
+          required:
+            - city
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    messages:
+      - role: user
+        content: Weather in London and time in Paris.
+    stream: true
+    stream_options:
+      include_usage: true
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: Get the current weather for a location
+          parameters:
+            type: object
+            properties:
+              location:
+                type: string
+            required:
+              - location
+      - type: function
+        function:
+          name: get_time
+          description: Get the local time for a city
+          parameters:
+            type: object
+            properties:
+              city:
+                type: string
+            required:
+              - city
+response:
+  chunks:
+    - 'data: {"id":"chatcmpl-4","object":"chat.completion.chunk","created":123459,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_x1","type":"function","function":{"name":"get_weather","arguments":"{\"location\": \"Lon"}},{"index":1,"type":"function","function":{"name":"get_time","arguments":"{\"city\": \"Par"}}]},"finish_reason":null}]}'
+    - 'data: {"id":"chatcmpl-4","object":"chat.completion.chunk","created":123459,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"don\"}"}},{"index":1,"function":{"arguments":"is\"}"}}]},"finish_reason":null}]}'
+    - 'data: {"id":"chatcmpl-4","object":"chat.completion.chunk","created":123459,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}'
+    - 'data: [DONE]'
+  expected_events:
+    - tool_call_started
+    - tool_args_delta
+    - tool_call_started
+    - tool_args_delta
+    - tool_args_delta
+    - tool_args_delta
+    - tool_call_completed
+    - tool_call_completed
+    - finish_reason
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: tool_call
+        call_id: call_x1
+        name: get_weather
+        arguments: '{"location": "London"}'
+      - type: tool_call
+        call_id: call_123459_1
+        name: get_time
+        arguments: '{"city": "Paris"}'
+  expected_tool_calls:
+    - call_id: call_x1
+      name: get_weather
+      arguments:
+        location: London
+    - call_id: call_123459_1
+      name: get_time
+      arguments:
+        city: Paris
+  expected_usage: {}
+  expected_terminal: completed

@@ -1,0 +1,56 @@
+# openai-responses/reasoning-and-text: reasoning summary deltas arrive before
+# the visible text; the normalized message keeps reasoning and text as separate
+# content parts in order; final usage carries output_tokens_details.reasoning_tokens.
+id: openai-responses/reasoning-and-text
+protocol: openai_responses
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: What is 6 times 7?
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    input:
+      - type: message
+        role: user
+        content:
+          - type: input_text
+            text: What is 6 times 7?
+    store: false
+    stream: true
+response:
+  chunks:
+    - "event: response.created\ndata: {\"id\":\"resp_2\",\"object\":\"response\",\"created_at\":123457,\"status\":\"in_progress\",\"model\":\"deepseek-v4-flash\",\"output\":[]}\n\n"
+    - "event: response.output_item.added\ndata: {\"output_index\":0,\"output_item\":{\"id\":\"rsn_1\",\"type\":\"reasoning\",\"status\":\"in_progress\",\"summary\":[]}}\n\n"
+    - "event: response.reasoning_summary_text.delta\ndata: {\"item_id\":\"rsn_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"Let me think\"}\n\n"
+    - "event: response.output_item.added\ndata: {\"output_index\":1,\"output_item\":{\"id\":\"msg_2\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n"
+    - "event: response.output_text.delta\ndata: {\"item_id\":\"msg_2\",\"output_index\":1,\"content_index\":0,\"delta\":\"The answer is 42\"}\n\n"
+    - "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_2\",\"object\":\"response\",\"status\":\"completed\",\"output\":[{\"id\":\"rsn_1\",\"type\":\"reasoning\",\"status\":\"completed\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Let me think\"}]},{\"id\":\"msg_2\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The answer is 42\"}]}],\"usage\":{\"input_tokens\":12,\"output_tokens\":9,\"total_tokens\":21,\"output_tokens_details\":{\"reasoning_tokens\":7}}}}\n\n"
+  expected_events:
+    - response_started
+    - reasoning_delta
+    - message_delta
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: reasoning
+        content: Let me think
+      - type: text
+        text: The answer is 42
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 12
+    output_tokens: 9
+    total_tokens: 21
+    reasoning_tokens: 7
+    source: provider_final
+    final: true
+  expected_terminal: completed

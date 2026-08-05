@@ -1,0 +1,41 @@
+# openai-responses/event-error: an SSE `event: error` frame is a typed terminal
+# failure (classified from the provider code); the late completed frame after it
+# MUST be rejected (terminal wins over EOF/late events).
+id: openai-responses/event-error
+protocol: openai_responses
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Trigger a rate limit.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    input:
+      - type: message
+        role: user
+        content:
+          - type: input_text
+            text: Trigger a rate limit.
+    store: false
+    stream: true
+response:
+  chunks:
+    - "event: response.created\ndata: {\"id\":\"resp_7\",\"object\":\"response\",\"created_at\":123462,\"status\":\"in_progress\",\"model\":\"deepseek-v4-flash\",\"output\":[]}\n\n"
+    - "event: error\ndata: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"Rate limit exceeded\",\"request_id\":\"req_7\"}\n\n"
+    - "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_7\",\"object\":\"response\",\"status\":\"completed\",\"output\":[]}}\n\n"
+  expected_events:
+    - response_started
+    - error
+  expected_message: {}
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: failed
+  expected_error:
+    code: rate_limited
+    terminal: true

@@ -1,0 +1,146 @@
+# anthropic/multiple-tool-use-results: history with two tool_use calls + tool
+# results (same-id consolidation, error mapping), an empty user continuation
+# (placeholder), same-role merge (tool role -> user), and a streamed response
+# with two tool_use blocks followed by text.
+id: anthropic/multiple-tool-use-results
+protocol: anthropic_messages
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: "What's the weather in SF and NYC?"
+    - role: assistant
+      content:
+        - type: tool_call
+          call_id: "toolu_01"
+          name: get_weather
+          arguments: "{\"location\":\"SF\"}"
+        - type: tool_call
+          call_id: "toolu_02"
+          name: get_weather
+          arguments: "{\"location\":\"NYC\"}"
+    - role: tool
+      content:
+        - type: tool_result
+          call_id: "toolu_01"
+          status: success
+          content: "60F"
+        - type: tool_result
+          call_id: "toolu_01"
+          status: success
+          content: " and sunny"
+        - type: tool_result
+          call_id: "toolu_02"
+          status: error
+          is_error: true
+          content: "location not found"
+    - role: user
+      content: []
+  normalized_tools:
+    - name: get_weather
+      description: "Get the current weather for a location"
+      input_schema:
+        type: object
+        properties:
+          location:
+            type: string
+  provider_options:
+    model: "deepseek-v4-flash"
+  expected_body:
+    model: "deepseek-v4-flash"
+    max_tokens: 4096
+    stream: true
+    messages:
+      - role: user
+        content:
+          - type: text
+            text: "What's the weather in SF and NYC?"
+      - role: assistant
+        content:
+          - type: tool_use
+            id: "toolu_01"
+            name: get_weather
+            input:
+              location: "SF"
+          - type: tool_use
+            id: "toolu_02"
+            name: get_weather
+            input:
+              location: "NYC"
+      - role: user
+        content:
+          - type: tool_result
+            tool_use_id: "toolu_01"
+            content: "60F and sunny"
+            is_error: false
+          - type: tool_result
+            tool_use_id: "toolu_02"
+            content: "location not found"
+            is_error: true
+          - type: text
+            text: "<prompt></prompt>"
+    tools:
+      - name: get_weather
+        description: "Get the current weather for a location"
+        input_schema:
+          type: object
+          properties:
+            location:
+              type: string
+response:
+  chunks:
+    - "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_05\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"deepseek-v4-flash\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":12,\"output_tokens\":0}}}\n\n"
+    - "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_10\",\"name\":\"get_weather\",\"input\":{}}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"location\\\":\\\"SF\\\"}\"}}\n\n"
+    - "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+    - "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_11\",\"name\":\"get_weather\",\"input\":{}}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"location\\\":\\\"NYC\\\"}\"}}\n\n"
+    - "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n"
+    - "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"text_delta\",\"text\":\"Both are mild.\"}}\n\n"
+    - "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":2}\n\n"
+    - "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":4}}\n\n"
+    - "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+  expected_events:
+    - response_started
+    - tool_call_started
+    - tool_args_delta
+    - tool_call_completed
+    - tool_call_started
+    - tool_args_delta
+    - tool_call_completed
+    - message_delta
+    - finish_reason
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: tool_call
+        call_id: "toolu_10"
+        name: get_weather
+        arguments: "{\"location\":\"SF\"}"
+      - type: tool_call
+        call_id: "toolu_11"
+        name: get_weather
+        arguments: "{\"location\":\"NYC\"}"
+      - type: text
+        text: "Both are mild."
+  expected_tool_calls:
+    - call_id: "toolu_10"
+      name: get_weather
+      arguments:
+        location: "SF"
+    - call_id: "toolu_11"
+      name: get_weather
+      arguments:
+        location: "NYC"
+  expected_usage:
+    input_tokens: 12
+    output_tokens: 4
+    total_tokens: 16
+    source: provider_final
+    final: true
+  expected_terminal: completed

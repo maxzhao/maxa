@@ -1,0 +1,93 @@
+# openai-responses/strict-nested-schema: function schemas pass recursive
+# strict-mode normalization — every object schema gains additionalProperties=false,
+# nested objects/arrays recurse, and an EMPTY object properties stays `{}` (the
+# driver additionally asserts vim.json.encode(body) never serializes it as `[]`).
+id: openai-responses/strict-nested-schema
+protocol: openai_responses
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Book a flight for Ada.
+  normalized_tools:
+    - type: function
+      function:
+        name: book_flight
+        description: Book a flight for a passenger
+        parameters:
+          type: object
+          properties:
+            passenger:
+              type: object
+              properties:
+                name:
+                  type: string
+            seats:
+              type: array
+              items:
+                type: object
+                properties: {}
+          required:
+            - passenger
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    input:
+      - type: message
+        role: user
+        content:
+          - type: input_text
+            text: Book a flight for Ada.
+    tools:
+      - type: function
+        function:
+          name: book_flight
+          description: Book a flight for a passenger
+          parameters:
+            type: object
+            additionalProperties: false
+            properties:
+              passenger:
+                type: object
+                additionalProperties: false
+                properties:
+                  name:
+                    type: string
+              seats:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  properties: {}
+            required:
+              - passenger
+    store: false
+    stream: true
+response:
+  chunks:
+    - "event: response.created\ndata: {\"id\":\"resp_6\",\"object\":\"response\",\"created_at\":123461,\"status\":\"in_progress\",\"model\":\"deepseek-v4-flash\",\"output\":[]}\n\n"
+    - "event: response.output_item.added\ndata: {\"output_index\":0,\"output_item\":{\"id\":\"msg_6\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n"
+    - "event: response.output_text.delta\ndata: {\"item_id\":\"msg_6\",\"output_index\":0,\"content_index\":0,\"delta\":\"Booking request received.\"}\n\n"
+    - "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_6\",\"object\":\"response\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_6\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Booking request received.\"}]}],\"usage\":{\"input_tokens\":30,\"output_tokens\":4,\"total_tokens\":34}}}\n\n"
+  expected_events:
+    - response_started
+    - message_delta
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: Booking request received.
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 30
+    output_tokens: 4
+    total_tokens: 34
+    source: provider_final
+    final: true
+  expected_terminal: completed

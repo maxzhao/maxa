@@ -1,0 +1,48 @@
+# openai-responses/response-failed: a response.failed frame is a typed terminal
+# failure; partial text emitted before the failure is preserved as a message
+# delta, but the terminal is the error (never converted to success by EOF).
+id: openai-responses/response-failed
+protocol: openai_responses
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Ask something that fails.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    input:
+      - type: message
+        role: user
+        content:
+          - type: input_text
+            text: Ask something that fails.
+    store: false
+    stream: true
+response:
+  chunks:
+    - "event: response.created\ndata: {\"id\":\"resp_8\",\"object\":\"response\",\"created_at\":123463,\"status\":\"in_progress\",\"model\":\"deepseek-v4-flash\",\"output\":[]}\n\n"
+    - "event: response.output_item.added\ndata: {\"output_index\":0,\"output_item\":{\"id\":\"msg_8\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n"
+    - "event: response.output_text.delta\ndata: {\"item_id\":\"msg_8\",\"output_index\":0,\"content_index\":0,\"delta\":\"Partial\"}\n\n"
+    - "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_8\",\"object\":\"response\",\"status\":\"failed\",\"error\":{\"code\":\"server_error\",\"message\":\"The server had an error\"}}}\n\n"
+    - "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_8\",\"object\":\"response\",\"status\":\"completed\",\"output\":[]}}\n\n"
+  expected_events:
+    - response_started
+    - message_delta
+    - error
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: Partial
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: failed
+  expected_error:
+    code: provider_unavailable
+    terminal: true

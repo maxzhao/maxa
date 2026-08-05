@@ -1,27 +1,29 @@
 -- filepath: lua/maxa/runtime/conversation/init.lua
---- maxa runtime normalized message model + message stack (phase-0 minimal scope).
+--- maxa runtime normalized message model + message stack (phase-1 W2).
 ---
---- Delivers the normalized-message construction/serialization helpers for phase 0
---- (§4.3 of .supermax/drafts/phase0-development-plan.md) and the identity contract
---- (§4.4): stable per-message `_meta.id`, monotonic `_meta.index`, and `_meta.cycle`
---- as the regeneration generation for the same index.
+--- Delivers the message-context-target normalized records (§Normalized records):
+--- messages carry a `content` list of content parts (text/reasoning/image/
+--- tool_call/tool_result/context_ref) with NO string-content compatibility layer;
+--- identity is the stable top-level `id` + provider-neutral `turn_id`; the stack
+--- keeps the phase-0 identity allocator (index/cycle) for regeneration semantics.
 ---
 --- Upstream alignment (read-only, never copied): `codecompanion/types.lua`
 --- `Message` type + `codecompanion/interactions/chat/init.lua::Chat:add_message`
 --- (message normalization from `data = {role, content?, reasoning?, tool_calls?}`,
---- tools.calls mapping, `_meta = { id, cycle, index }`, index = #messages+1 at
---- insertion time).
+--- index = #messages+1 at insertion time).
 ---
 --- Dependencies: only `lua/maxa/runtime/schema` (topology: schema -> conversation).
---- It never loads `codecompanion.*`/`mcphub.*`/`lua/util/hooks/*`. Later phase adds
---- content-parts/context/reasoning enrichment (message-context-target); those fields
---- stay optional placeholders here so the normalized shape remains forward-compatible.
+--- It never loads `codecompanion.*`/`mcphub.*`/`lua/util/hooks/*`.
 
 local schema = require("maxa.runtime.schema")
 
 local M = {}
 
 M.name = "conversation"
+
+--- Deterministic minimal user instruction for context-only submissions
+--- (message-context-target §Submission validation: generated and marked synthetic).
+M.SYNTHETIC_INSTRUCTION = "Answer based on the selected context."
 
 --- FNV-1a 32-bit content hash. Deterministic across runs; used purely to seed a
 --- message id (not cryptographic). Pure-Lua so it never depends on nvim internals.
@@ -49,9 +51,7 @@ end
 
 -- Deep-copy a plain value for stack-owned message copies so the caller and the
 -- stack never share mutable identity fields. Uses the LazyVim/nvim built-in
--- `vim.deepcopy` (R07-era cleanup: the previous hand-written cycle-safe deepcopy was
--- redundant; normalized messages are JSON-safe plain values without cycles, so the
--- nvim primitive is a drop-in, and it is already used elsewhere in this runtime).
+-- `vim.deepcopy` (normalized messages are JSON-safe plain values without cycles).
 ---@generic T
 ---@param v T
 ---@return T
@@ -111,30 +111,125 @@ function M.make_id(idctx, content, stable_id)
 end
 
 ----------------------------------------------------------------------------
--- Message construction
+-- Content-part construction (message-context-target §Normalized records)
 ----------------------------------------------------------------------------
 
---- Normalize caller-provided `tools` / `tool_calls` into the `{ calls = <list> }`
---- shape the schema requires. nil input yields nil (no `tools` key), matching
---- upstream `add_message` where tools appears only when tool data is supplied.
----@param tools any `{ calls = {...} }`, a bare list, or nil
----@return table? nil|{ calls = table }
-local function normalize_tools(tools)
-  if tools == nil then
-    return nil
+--- Build a `text` content part (UTF-8 + optional language/media metadata).
+---@param text string UTF-8 text
+---@param opts? table { language?: string, media?: table }
+---@return table part
+function M.text_part(text, opts)
+  opts = opts or {}
+  local part = { type = "text", text = tostring(text or "") }
+  if opts.language ~= nil then
+    part.language = opts.language
   end
-  if type(tools) ~= "table" then
-    error("conversation: message `tools` must be a table")
+  if opts.media ~= nil then
+    part.media = opts.media
   end
-  local calls = tools.calls
-  if calls == nil then
-    calls = tools -- bare list form
-  end
-  if type(calls) ~= "table" then
-    error("conversation: message `tools.calls` must be a table")
-  end
-  return { calls = calls }
+  return part
 end
+
+--- Build a `reasoning` content part: content + provider round-trip metadata,
+--- kept separate from visible assistant text; retention follows provider/model
+--- policy (opts.retained).
+---@param content string reasoning text
+---@param opts? table { signature?: string, provider?: string, retained?: boolean }
+---@return table part
+function M.reasoning_part(content, opts)
+  opts = opts or {}
+  local part = { type = "reasoning", content = tostring(content or "") }
+  if opts.signature ~= nil then
+    part.signature = opts.signature
+  end
+  if opts.provider ~= nil then
+    part.provider = opts.provider
+  end
+  if opts.retained ~= nil then
+    part.retained = opts.retained
+  end
+  return part
+end
+
+--- Build an `image` content part: MIME + runtime-owned blob reference.
+--- The part stores the reference, not the payload; temporary payload expiry
+--- must not invalidate a message already committed for a request.
+---@param mime string MIME type
+---@param blob_ref string runtime-owned payload/blob reference
+---@param opts? table { source?: table }
+---@return table part
+function M.image_part(mime, blob_ref, opts)
+  opts = opts or {}
+  local part = { type = "image", mime = mime, blob_ref = blob_ref }
+  if opts.source ~= nil then
+    part.source = opts.source
+  end
+  return part
+end
+
+--- Build a `tool_call` content part: runtime call id + optional provider
+--- id/provenance + tool name + encoded arguments (JSON text).
+---@param call_id string runtime call id
+---@param name string tool name
+---@param arguments string encoded arguments (JSON text)
+---@param opts? table { provider_id?: string }
+---@return table part
+function M.tool_call_part(call_id, name, arguments, opts)
+  opts = opts or {}
+  local part = { type = "tool_call", call_id = call_id, name = name, arguments = arguments or "" }
+  if opts.provider_id ~= nil then
+    part.provider_id = opts.provider_id
+  end
+  return part
+end
+
+--- Build a `tool_result` content part: paired call id + status + provider-facing
+--- content. User display is a separate projection (renderer concern).
+---@param call_id string paired tool_call call id
+---@param status string "success"|"error"
+---@param content string provider-facing result content
+---@param opts? table { is_error?: boolean }
+---@return table part
+function M.tool_result_part(call_id, status, content, opts)
+  opts = opts or {}
+  local part = { type = "tool_result", call_id = call_id, status = status, content = tostring(content or "") }
+  if opts.is_error ~= nil then
+    part.is_error = opts.is_error
+  end
+  return part
+end
+
+--- Build a `context_ref` content part: stable context item id + snapshot/hash
+--- (never an implicit live buffer pointer).
+---@param item_id string stable context item id
+---@param opts? table { snapshot?: string, hash?: string, kind?: string }
+---@return table part
+function M.context_ref_part(item_id, opts)
+  opts = opts or {}
+  local part = { type = "context_ref", item_id = item_id }
+  if opts.snapshot ~= nil then
+    part.snapshot = opts.snapshot
+  end
+  if opts.hash ~= nil then
+    part.hash = opts.hash
+  end
+  if opts.kind ~= nil then
+    part.kind = opts.kind
+  end
+  return part
+end
+
+--- Validate a content-part list (schema.validate_content wrapper).
+---@param content any
+---@return boolean ok
+---@return string|nil err exact diagnostic
+function M.validate_content(content)
+  return schema.validate_content(content)
+end
+
+----------------------------------------------------------------------------
+-- Message construction
+----------------------------------------------------------------------------
 
 --- Deterministic seed content for id hashing (stable subset of the message).
 ---@param data table
@@ -166,23 +261,24 @@ local function build_meta(idctx, content, explicit_meta, index, cycle)
   return meta
 end
 
---- Construct a single normalized message (§4.3), aligned to `Chat:add_message`.
----
+--- Construct a single normalized message (§Normalized records).
+--- `content` MUST be a list of content parts; there is no string-content
+--- compatibility layer. `id`/`turn_id` live at the top level; `_meta`
+--- (optional) mirrors the phase-0 identity block (index/cycle/tag).
 ---@param data table {
----   role:        "user"|"assistant"|"system"|"tool",
----   content?:    string|nil,
----   reasoning?:  table|nil,
----   tool_calls?: table[]|nil, -- mapped to tools.calls
----   tools?:      table|nil,   -- may be { calls = {...} } or a bare list
+---   role:    "system"|"project"|"user"|"assistant"|"tool",
+---   content?: table[]|nil, -- content parts (nil => empty list)
 --- }
 ---@param opts? table {
 ---   idctx?:     table identity allocator (defaults to a fresh ephemeral allocator),
 ---   index?:     integer, indexed position (defaults to idctx:next_index())
 ---   cycle?:     integer, regeneration generation (defaults to idctx.cycle)
 ---   stable_id?: string,  caller-supplied immutable message id
----   context?:   table,   context placeholder stored on message.context
----   visible?:   boolean, forwarded into opts
----   _meta?:     table,   extra protocol/tag fields merged into _meta
+---   turn_id?:   string,  provider-neutral turn id (defaults to the message id)
+---   visible?:   boolean, forwarded into visibility ("visible"|"hidden")
+---   provenance?: table,  provenance record (defaults to {})
+---   created_at?: integer, wall-clock ms (defaults to now)
+---   _meta?:     table,   extra identity fields merged into _meta
 --- }
 ---@return table normalized message
 function M.new_message(data, opts)
@@ -193,47 +289,42 @@ function M.new_message(data, opts)
   opts = opts or {}
   local idctx = opts.idctx or M.new_identity()
 
-  local tool_bag = normalize_tools(data.tools or data.tool_calls)
-
-  local o = {}
-  if opts.visible ~= nil then
-    o.visible = opts.visible
+  -- Full parts switch: content must be a list of valid content parts.
+  local content = data.content
+  if content == nil then
+    content = {}
   end
-  if type(data.opts) == "table" then
-    for k, v in pairs(data.opts) do
-      o[k] = v
-    end
+  if type(content) ~= "table" or not schema.islist(content) then
+    error("conversation.new_message: data.content must be a list of content parts")
+  end
+  local ok, cerr = schema.validate_content(content)
+  if not ok then
+    error("conversation.new_message: invalid content: " .. cerr)
   end
 
-  -- Build without tools default (upstream shape: tools present only when tool data
-  -- is supplied); schema tolerates missing `tools` (it is optional).
-  -- A caller-supplied `stable_id` must be forwarded into the identity block so it
-  -- wins over the content-derived id (immutable identity contract §4.4).
+  -- Caller-supplied stable_id must win over the content-derived id.
   local meta_fields = opts._meta or {}
   if opts.stable_id ~= nil then
     meta_fields = vim.tbl_deep_extend("force", { id = opts.stable_id }, meta_fields)
   end
+  local meta = build_meta(
+    idctx,
+    message_seed_content(data),
+    meta_fields,
+    opts.index or idctx:next_index(),
+    opts.cycle or idctx.cycle
+  )
+
   local message = {
+    id = meta.id,
+    turn_id = opts.turn_id or meta.id,
     role = data.role,
-    content = data.content,
-    reasoning = data.reasoning or opts.reasoning,
-    _meta = build_meta(
-      idctx,
-      message_seed_content(data),
-      meta_fields,
-      opts.index or idctx:next_index(),
-      opts.cycle or idctx.cycle
-    ),
+    content = deepcopy(content),
+    visibility = opts.visible == false and "hidden" or (opts.visible == true and "visible" or "visible"),
+    provenance = deepcopy(opts.provenance or {}),
+    created_at = opts.created_at or schema.now_ms(),
+    _meta = meta,
   }
-  if tool_bag then
-    message.tools = tool_bag
-  end
-  if not vim.tbl_isempty(o) then
-    message.opts = o
-  end
-  if opts.context ~= nil then
-    message.context = opts.context
-  end
 
   local verr = schema.validate(schema.message, message, { skip_underscore = false })
   if verr then
@@ -244,10 +335,160 @@ function M.new_message(data, opts)
 end
 
 ----------------------------------------------------------------------------
+-- Submission validation (message-context-target §Submission validation)
+----------------------------------------------------------------------------
+
+--- Validate a submission before a request is composed.
+---
+--- Semantics:
+---   - whitespace-only text with no context items and no continuation record is
+---     `empty-submit`: rejected, creates no request;
+---   - context-only submission is valid when at least one selected item
+---     contributes provider-visible content; a deterministic minimal user
+---     instruction is generated and marked `synthetic`;
+---   - an automatic continuation may submit an empty visible user string only
+---     when complete paired tool results (or a protocol-required continuation
+---     record) exist;
+---   - missing/expired image payload, unresolved context source, or a
+---     cross-project context item blocks composition with an exact
+---     item/field diagnostic.
+---
+---@param input table {
+---   text?: string,                 visible user text (may be empty)
+---   context?: table[],             selected context items (see spec §Context items)
+---   continuation?: table {         automatic-continuation record
+---     tool_results?: table[],      complete paired tool results
+---     protocol_required?: boolean  protocol requires a continuation turn
+---   }
+--- }
+---@param opts? table { project_id?: string } session project id for cross-project checks
+---@return table result {
+---   ok=boolean,
+---   kind="text"|"context_only"|"continuation",
+---   instruction=string,   -- provider-visible instruction text
+---   synthetic=boolean,    -- true when the instruction was auto-generated
+--- } | { ok=false, error=table (typed), diagnostic=string }
+function M.validate_submission(input, opts)
+  input = input or {}
+  opts = opts or {}
+  local text = type(input.text) == "string" and input.text or ""
+  local context = type(input.context) == "table" and input.context or {}
+  local continuation = type(input.continuation) == "table" and input.continuation or {}
+
+  -- Context item structure diagnostics first (exact item/field).
+  local visible_items = 0
+  for i, item in ipairs(context) do
+    if type(item) ~= "table" then
+      return {
+        ok = false,
+        error = schema.new_error(schema.ERROR.INVALID_ARGUMENT, "context item is not a table", nil, false),
+        diagnostic = ("context[%d]: item must be a mapping"):format(i),
+      }
+    end
+    if item.id == nil or item.id == "" then
+      return {
+        ok = false,
+        error = schema.new_error(schema.ERROR.INVALID_ARGUMENT, "context item missing id", nil, false),
+        diagnostic = ("context[%d].id: missing stable context item id"):format(i),
+      }
+    end
+    -- Unresolved context source: a live item must declare kind + source + content
+    -- (or a blob reference); generated summaries may carry only a snapshot.
+    if item.kind == nil or item.kind == "" then
+      return {
+        ok = false,
+        error = schema.new_error(schema.ERROR.INVALID_ARGUMENT, "context item missing kind", nil, false),
+        diagnostic = ("context[%s].kind: unresolved context source (kind required)"):format(tostring(item.id)),
+      }
+    end
+    if item.source == nil or item.source == "" then
+      return {
+        ok = false,
+        error = schema.new_error(schema.ERROR.INVALID_ARGUMENT, "context item missing source", nil, false),
+        diagnostic = ("context[%s].source: unresolved context source (source required)"):format(tostring(item.id)),
+      }
+    end
+    -- Cross-project items are rejected unless explicitly rebound (transfer op is
+    -- a later phase; here any mismatched project_id blocks composition).
+    if opts.project_id ~= nil and item.project_id ~= nil and item.project_id ~= opts.project_id then
+      return {
+        ok = false,
+        error = schema.new_error(schema.ERROR.INVALID_ARGUMENT, "cross-project context item", nil, false),
+        diagnostic = ("context[%s].project_id: %s does not match session project %s"):format(
+          tostring(item.id),
+          tostring(item.project_id),
+          tostring(opts.project_id)
+        ),
+      }
+    end
+    -- Missing/expired image payload: image items must reference a live blob.
+    if item.kind == "image" then
+      if item.blob_ref == nil or item.blob_ref == "" then
+        return {
+          ok = false,
+          error = schema.new_error(schema.ERROR.INVALID_ARGUMENT, "image context item missing payload", nil, false),
+          diagnostic = ("context[%s].blob_ref: missing image payload reference"):format(tostring(item.id)),
+        }
+      end
+      if item.expired == true or item.payload_status == "expired" then
+        return {
+          ok = false,
+          error = schema.new_error(schema.ERROR.INVALID_ARGUMENT, "image context item payload expired", nil, false),
+          diagnostic = ("context[%s].blob_ref: image payload expired"):format(tostring(item.id)),
+        }
+      end
+    end
+    -- An item contributes provider-visible content when it carries content text
+    -- or a blob reference (images) or a snapshot (generated summary).
+    if item.content ~= nil or item.blob_ref ~= nil or item.snapshot ~= nil then
+      visible_items = visible_items + 1
+    end
+  end
+
+  local has_text = text:gsub("%s", "") ~= ""
+  if has_text then
+    return { ok = true, kind = "text", instruction = text, synthetic = false }
+  end
+
+  -- No visible text: continuation vs context-only vs empty-submit.
+  local tool_results = type(continuation.tool_results) == "table" and continuation.tool_results or {}
+  local paired = 0
+  for _, tr in ipairs(tool_results) do
+    if type(tr) == "table" and tr.call_id ~= nil then
+      paired = paired + 1
+    end
+  end
+  local can_continue = paired > 0 or continuation.protocol_required == true
+  if can_continue then
+    return { ok = true, kind = "continuation", instruction = "", synthetic = false }
+  end
+
+  if visible_items > 0 then
+    return {
+      ok = true,
+      kind = "context_only",
+      instruction = M.SYNTHETIC_INSTRUCTION,
+      synthetic = true,
+    }
+  end
+
+  return {
+    ok = false,
+    error = schema.new_error(
+      schema.ERROR.INVALID_ARGUMENT,
+      "empty submission: no visible text, context, or continuation record",
+      nil,
+      false
+    ),
+    diagnostic = "empty-submit: whitespace-only input with no new context",
+  }
+end
+
+----------------------------------------------------------------------------
 -- Message stack
 ----------------------------------------------------------------------------
 
---- Ordered message stack (the phase-0 `messages` sequence of a conversation).
+--- Ordered message stack (the `messages` sequence of a conversation).
 --- Mirrors upstream `self.messages` with `add_message` semantics for appending,
 --- plus mutation-free iteration and a serialization round-trip.
 local Stack = {}
@@ -337,8 +578,10 @@ function Stack:replace_last_assistant(data, opts)
     index = index,
     cycle = cycle,
     stable_id = prev._meta and prev._meta.id,
-    context = opts.context,
+    turn_id = opts.turn_id,
     visible = opts.visible,
+    provenance = opts.provenance,
+    created_at = opts.created_at,
     _meta = opts._meta,
   })
   self.messages[idx] = msg
@@ -350,14 +593,14 @@ end
 ----------------------------------------------------------------------------
 
 --- Serialize a single normalized message to a plain JSON-safe table (identity kept
---- verbatim).
+--- verbatim; content parts are JSON-safe by construction).
 ---@param msg table normalized message
 ---@return table plain
 function M.serialize_message(msg)
   return deepcopy(msg)
 end
 
---- Validate a message against the phase-0 schema.
+--- Validate a message against the normalized schema (content-parts enforced).
 ---@param msg table
 ---@return boolean ok
 ---@return string|nil err
@@ -368,6 +611,10 @@ function M.validate_message(msg)
   local verr = schema.validate(schema.message, msg, { skip_underscore = false })
   if verr then
     return false, vim.inspect(verr)
+  end
+  local ok, cerr = schema.validate_content(msg.content)
+  if not ok then
+    return false, cerr
   end
   return true, nil
 end

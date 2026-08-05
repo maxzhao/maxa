@@ -1,6 +1,7 @@
 ---
 title: Wiki
 created: 2026-08-03
+updated: 2026-08-04
 type: index
 ---
 
@@ -20,4 +21,4 @@ Agent-maintained synthesis layer for stable project knowledge.
 
 ## Entries
 
-_(none yet)_
+- [protocols/](protocols/index.md) — 官方协议参考（OpenAI Chat/Responses、Anthropic Messages、Gemini native、DeepSeek），maxa 阶段1 适配器开发/验收对照

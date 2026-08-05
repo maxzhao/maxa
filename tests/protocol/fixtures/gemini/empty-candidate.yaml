@@ -1,0 +1,42 @@
+# gemini-native/empty-candidate: a stream that ends without any candidate and
+# without a block is the explicit `empty-candidates` protocol outcome (typed
+# protocol error at EOF via finish_stream), never silent success. The usage-only
+# envelope still updates usage before the terminal.
+id: gemini-native/empty-candidate
+protocol: gemini
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Say nothing.
+  normalized_tools: []
+  provider_options:
+    model: gemini-2.5-flash
+  expected_body:
+    contents:
+      - role: user
+        parts:
+          - text: Say nothing.
+response:
+  chunks:
+    - 'data: {"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":0,"totalTokenCount":10}}'
+    - 'data: [DONE]'
+  expected_events:
+    - response_started
+    - usage_updated
+    - error
+  expected_message: {}
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 10
+    output_tokens: 0
+    total_tokens: 10
+    provider_reported_total: 10
+    source: provider_final
+    final: true
+  expected_terminal: failed
+  expected_error:
+    code: protocol
+    terminal: true

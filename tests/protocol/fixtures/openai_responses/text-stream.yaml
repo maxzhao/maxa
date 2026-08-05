@@ -1,0 +1,58 @@
+# openai-responses/text-stream: basic streaming text completion.
+# SSE frames carry `event:` lines (official Responses streaming format);
+# response.created establishes the identity; output_text deltas accumulate;
+# response.completed carries the final usage and is the terminal event.
+# Chunks are double-quoted scalars with embedded \n escapes and a trailing
+# blank line (each chunk dispatches exactly one SSE frame).
+id: openai-responses/text-stream
+protocol: openai_responses
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Say hello in one line.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    input:
+      - type: message
+        role: user
+        content:
+          - type: input_text
+            text: Say hello in one line.
+    store: false
+    stream: true
+response:
+  chunks:
+    - "event: response.created\ndata: {\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":123456,\"status\":\"in_progress\",\"model\":\"deepseek-v4-flash\",\"output\":[]}\n\n"
+    - "event: response.in_progress\ndata: {\"object\":\"response\",\"id\":\"resp_1\"}\n\n"
+    - "event: response.output_item.added\ndata: {\"output_index\":0,\"output_item\":{\"id\":\"msg_1\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n"
+    - "event: response.output_text.delta\ndata: {\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hello\"}\n\n"
+    - "event: response.output_text.delta\ndata: {\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\" world\"}\n\n"
+    - "event: response.output_item.done\ndata: {\"output_index\":0,\"output_item\":{\"id\":\"msg_1\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello world\"}]}}\n\n"
+    - "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_1\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello world\"}]}],\"usage\":{\"input_tokens\":10,\"output_tokens\":5,\"total_tokens\":15,\"input_tokens_details\":{\"cached_tokens\":2},\"output_tokens_details\":{\"reasoning_tokens\":0}}}}\n\n"
+  expected_events:
+    - response_started
+    - message_delta
+    - message_delta
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: Hello world
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 10
+    output_tokens: 5
+    total_tokens: 15
+    cached_input_tokens: 2
+    source: provider_final
+    final: true
+  expected_terminal: completed

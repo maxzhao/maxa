@@ -1,0 +1,52 @@
+# openai-chat/final-usage-with-empty-choices: the final chunk carries usage
+# with an empty choices array; it updates usage without producing assistant
+# content (contract). Usage snapshot is provider_delta (final=false: the
+# adapter cannot know a chunk is last; the transport terminal marks the end).
+id: openai-chat/final-usage-with-empty-choices
+protocol: openai_chat
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Say hello.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    messages:
+      - role: user
+        content: Say hello.
+    stream: true
+    stream_options:
+      include_usage: true
+response:
+  chunks:
+    - 'data: {"id":"chatcmpl-6","object":"chat.completion.chunk","created":123461,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}'
+    - 'data: {"id":"chatcmpl-6","object":"chat.completion.chunk","created":123461,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}'
+    - 'data: {"id":"chatcmpl-6","object":"chat.completion.chunk","created":123461,"model":"deepseek-v4-flash","choices":[],"usage":{"prompt_tokens":21,"completion_tokens":9,"total_tokens":30,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":1}}}'
+    - 'data: [DONE]'
+  expected_events:
+    - message_delta
+    - finish_reason
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: Hello
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 21
+    output_tokens: 9
+    total_tokens: 30
+    provider_reported_total: 30
+    cached_input_tokens: 4
+    reasoning_tokens: 1
+    source: provider_delta
+    final: false
+  expected_terminal: completed

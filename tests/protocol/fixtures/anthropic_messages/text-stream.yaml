@@ -1,0 +1,51 @@
+# anthropic/text-stream: streamed text response (SSE frames fed one at a time).
+id: anthropic/text-stream
+protocol: anthropic_messages
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: "Say hello in French"
+  normalized_tools: []
+  provider_options:
+    model: "deepseek-v4-flash"
+  expected_body:
+    model: "deepseek-v4-flash"
+    max_tokens: 4096
+    stream: true
+    messages:
+      - role: user
+        content:
+          - type: text
+            text: "Say hello in French"
+response:
+  chunks:
+    - "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"deepseek-v4-flash\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":5,\"output_tokens\":1}}}\n\n"
+    - "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Bonjour\"}}\n\n"
+    - "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" !\"}}\n\n"
+    - "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+    - "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":3}}\n\n"
+    - "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+  expected_events:
+    - response_started
+    - message_delta
+    - message_delta
+    - finish_reason
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: "Bonjour !"
+  expected_tool_calls: []
+  expected_usage:
+    input_tokens: 5
+    output_tokens: 3
+    total_tokens: 8
+    source: provider_final
+    final: true
+  expected_terminal: completed

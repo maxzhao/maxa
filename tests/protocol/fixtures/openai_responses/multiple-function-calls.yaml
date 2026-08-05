@@ -1,0 +1,124 @@
+# openai-responses/multiple-function-calls: two parallel function calls with
+# interleaved arguments delta streams, accumulated by output_index; each call
+# completes via function_call_arguments.done; final completed carries usage.
+id: openai-responses/multiple-function-calls
+protocol: openai_responses
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Weather in Beijing and its country code?
+  normalized_tools:
+    - type: function
+      function:
+        name: get_weather
+        description: Get the current weather for a city
+        parameters:
+          type: object
+          properties:
+            city:
+              type: string
+          required:
+            - city
+    - type: function
+      function:
+        name: get_country_code
+        description: Get the ISO country code for a city
+        parameters:
+          type: object
+          properties:
+            city:
+              type: string
+          required:
+            - city
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    input:
+      - type: message
+        role: user
+        content:
+          - type: input_text
+            text: Weather in Beijing and its country code?
+    tools:
+      - type: function
+        function:
+          name: get_weather
+          description: Get the current weather for a city
+          parameters:
+            type: object
+            additionalProperties: false
+            properties:
+              city:
+                type: string
+            required:
+              - city
+      - type: function
+        function:
+          name: get_country_code
+          description: Get the ISO country code for a city
+          parameters:
+            type: object
+            additionalProperties: false
+            properties:
+              city:
+                type: string
+            required:
+              - city
+    store: false
+    stream: true
+response:
+  chunks:
+    - "event: response.created\ndata: {\"id\":\"resp_4\",\"object\":\"response\",\"created_at\":123459,\"status\":\"in_progress\",\"model\":\"deepseek-v4-flash\",\"output\":[]}\n\n"
+    - "event: response.output_item.added\ndata: {\"output_index\":0,\"output_item\":{\"id\":\"fc_1\",\"call_id\":\"call_1\",\"type\":\"function_call\",\"status\":\"in_progress\",\"name\":\"get_weather\",\"arguments\":\"\"}}\n\n"
+    - "event: response.output_item.added\ndata: {\"output_index\":1,\"output_item\":{\"id\":\"fc_2\",\"call_id\":\"call_2\",\"type\":\"function_call\",\"status\":\"in_progress\",\"name\":\"get_country_code\",\"arguments\":\"\"}}\n\n"
+    - "event: response.function_call_arguments.delta\ndata: {\"item_id\":\"fc_1\",\"output_index\":0,\"delta\":\"{\\\"city\\\":\\\"Bei\"}\n\n"
+    - "event: response.function_call_arguments.delta\ndata: {\"item_id\":\"fc_2\",\"output_index\":1,\"delta\":\"{\\\"city\\\":\\\"Bei\"}\n\n"
+    - "event: response.function_call_arguments.delta\ndata: {\"item_id\":\"fc_1\",\"output_index\":0,\"delta\":\"jing\\\"}\"}\n\n"
+    - "event: response.function_call_arguments.delta\ndata: {\"item_id\":\"fc_2\",\"output_index\":1,\"delta\":\"jing\\\"}\"}\n\n"
+    - "event: response.function_call_arguments.done\ndata: {\"item_id\":\"fc_1\",\"output_index\":0,\"arguments\":\"{\\\"city\\\":\\\"Beijing\\\"}\"}\n\n"
+    - "event: response.function_call_arguments.done\ndata: {\"item_id\":\"fc_2\",\"output_index\":1,\"arguments\":\"{\\\"city\\\":\\\"Beijing\\\"}\"}\n\n"
+    - "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_4\",\"object\":\"response\",\"status\":\"completed\",\"output\":[{\"id\":\"fc_1\",\"call_id\":\"call_1\",\"type\":\"function_call\",\"status\":\"completed\",\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Beijing\\\"}\"},{\"id\":\"fc_2\",\"call_id\":\"call_2\",\"type\":\"function_call\",\"status\":\"completed\",\"name\":\"get_country_code\",\"arguments\":\"{\\\"city\\\":\\\"Beijing\\\"}\"}],\"usage\":{\"input_tokens\":18,\"output_tokens\":4,\"total_tokens\":22}}}\n\n"
+  expected_events:
+    - response_started
+    - tool_call_started
+    - tool_args_delta
+    - tool_call_started
+    - tool_args_delta
+    - tool_args_delta
+    - tool_args_delta
+    - tool_call_completed
+    - tool_call_completed
+    - usage_updated
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: tool_call
+        call_id: call_1
+        name: get_weather
+        arguments: '{"city":"Beijing"}'
+      - type: tool_call
+        call_id: call_2
+        name: get_country_code
+        arguments: '{"city":"Beijing"}'
+  expected_tool_calls:
+    - call_id: call_1
+      name: get_weather
+      arguments:
+        city: Beijing
+    - call_id: call_2
+      name: get_country_code
+      arguments:
+        city: Beijing
+  expected_usage:
+    input_tokens: 18
+    output_tokens: 4
+    total_tokens: 22
+    source: provider_final
+    final: true
+  expected_terminal: completed

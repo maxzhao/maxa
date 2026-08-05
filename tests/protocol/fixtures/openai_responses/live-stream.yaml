@@ -1,0 +1,83 @@
+mode: "streamed"
+request:
+  provider_options:
+    stream: true
+    model: "deepseek-v4-flash"
+  expected_body:
+    store: false
+    model: "deepseek-v4-flash"
+    stream: true
+    input:
+      - role: "user"
+        type: "message"
+        content:
+          - text: "Reply with exactly: OK"
+            type: "input_text"
+  normalized_messages:
+    - role: "user"
+      content:
+        - type: "text"
+          text: "Reply with exactly: OK"
+  normalized_tools: {}
+protocol: "openai_responses"
+response:
+  expected_tool_calls: {}
+  expected_terminal: "completed"
+  chunks:
+    - "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"329270fb-be0b-49c8-bda8-f47cbaa836fc\",\"object\":\"response\",\"created_at\":1785857801,\"status\":\"in_progress\",\"background\":false,\"completed_at\":null,\"content_filters\":null,\"error\":null,\"frequency_penalty\":0.0,\"incomplete_details\":null,\"instructions\":null,\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"deepseek-v4-flash\",\"moderation\":null,\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"prompt_cache_key\":null,\"prompt_cache_retention\":null,\"reasoning\":{\"effort\":null,\"summary\":null},\"safety_identifier\":null,\"service_tier\":\"default\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":null},\"tool_choice\":\"auto\",\"tools\":[],\"top_logprobs\":0,\"top_p\":1.0,\"truncation\":\"disabled\",\"usage\":null,\"user\":null,\"metadata\":{}},\"sequence_number\":0}\n\n"
+    - "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"329270fb-be0b-49c8-bda8-f47cbaa836fc\",\"object\":\"response\",\"created_at\":1785857801,\"status\":\"in_progress\",\"background\":false,\"completed_at\":null,\"content_filters\":null,\"error\":null,\"frequency_penalty\":0.0,\"incomplete_details\":null,\"instructions\":null,\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"deepseek-v4-flash\",\"moderation\":null,\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"prompt_cache_key\":null,\"prompt_cache_retention\":null,\"reasoning\":{\"effort\":null,\"summary\":null},\"safety_identifier\":null,\"service_tier\":\"default\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":null},\"tool_choice\":\"auto\",\"tools\":[],\"top_logprobs\":0,\"top_p\":1.0,\"truncation\":\"disabled\",\"usage\":null,\"user\":null,\"metadata\":{}},\"sequence_number\":1}\n\n"
+    - "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\",\"id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"status\":\"in_progress\",\"content\":[],\"summary\":[]},\"output_index\":0,\"sequence_number\":2}\n\n"
+    - "event: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"content_index\":0,\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"part\":{\"type\":\"reasoning_text\",\"text\":\"\"},\"sequence_number\":3}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\"We\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":4}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" need\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":5}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" to\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":6}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" reply\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":7}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" exactly\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":8}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" \\\"\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":9}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\"OK\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":10}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\"\\\".\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":11}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" The\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":12}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" instruction\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":13}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" says\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":14}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" \\\"\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":15}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\"Reply\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":16}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" with\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":17}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" exactly\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":18}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\":\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":19}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" OK\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":20}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\"\\\".\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":21}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" So\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":22}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" output\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":23}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" just\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":24}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\" OK\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":25}\n\n"
+    - "event: response.reasoning_text.delta\ndata: {\"type\":\"response.reasoning_text.delta\",\"content_index\":0,\"delta\":\".\",\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":26}\n\n"
+    - "event: response.reasoning_text.done\ndata: {\"type\":\"response.reasoning_text.done\",\"content_index\":0,\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"sequence_number\":27,\"text\":\"We need to reply exactly \\\"OK\\\". The instruction says \\\"Reply with exactly: OK\\\". So output just OK.\"}\n\n"
+    - "event: response.content_part.done\ndata: {\"type\":\"response.content_part.done\",\"content_index\":0,\"item_id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"output_index\":0,\"part\":{\"type\":\"reasoning_text\",\"text\":\"We need to reply exactly \\\"OK\\\". The instruction says \\\"Reply with exactly: OK\\\". So output just OK.\"},\"sequence_number\":28}\n\n"
+    - "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"status\":\"completed\",\"content\":[{\"type\":\"reasoning_text\",\"text\":\"We need to reply exactly \\\"OK\\\". The instruction says \\\"Reply with exactly: OK\\\". So output just OK.\"}],\"summary\":[]},\"output_index\":0,\"sequence_number\":29}\n\n"
+    - "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"message\",\"id\":\"d215e992-9399-4b47-976e-d3dbe64f3268\",\"status\":\"in_progress\",\"content\":[],\"phase\":\"final_answer\",\"role\":\"assistant\"},\"output_index\":1,\"sequence_number\":30}\n\n"
+    - "event: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"content_index\":0,\"item_id\":\"d215e992-9399-4b47-976e-d3dbe64f3268\",\"output_index\":1,\"part\":{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"\"},\"sequence_number\":31}\n\n"
+    - "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"content_index\":0,\"delta\":\"OK\",\"item_id\":\"d215e992-9399-4b47-976e-d3dbe64f3268\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":32}\n\n"
+    - "event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"content_index\":0,\"item_id\":\"d215e992-9399-4b47-976e-d3dbe64f3268\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":33,\"text\":\"OK\"}\n\n"
+    - "event: response.content_part.done\ndata: {\"type\":\"response.content_part.done\",\"content_index\":0,\"item_id\":\"d215e992-9399-4b47-976e-d3dbe64f3268\",\"output_index\":1,\"part\":{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"OK\"},\"sequence_number\":34}\n\n"
+    - "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"id\":\"d215e992-9399-4b47-976e-d3dbe64f3268\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"OK\"}],\"phase\":\"final_answer\",\"role\":\"assistant\"},\"output_index\":1,\"sequence_number\":35}\n\n"
+    - "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"329270fb-be0b-49c8-bda8-f47cbaa836fc\",\"object\":\"response\",\"created_at\":1785857801,\"status\":\"completed\",\"background\":false,\"completed_at\":1785857832,\"content_filters\":null,\"error\":null,\"frequency_penalty\":0.0,\"incomplete_details\":null,\"instructions\":null,\"max_output_tokens\":null,\"max_tool_calls\":null,\"model\":\"deepseek-v4-flash\",\"moderation\":null,\"output\":[{\"type\":\"reasoning\",\"id\":\"6cf9568a-defe-41fa-b119-6e06e235ffde\",\"status\":\"completed\",\"content\":[{\"type\":\"reasoning_text\",\"text\":\"We need to reply exactly \\\"OK\\\". The instruction says \\\"Reply with exactly: OK\\\". So output just OK.\"}],\"summary\":[]},{\"type\":\"message\",\"id\":\"d215e992-9399-4b47-976e-d3dbe64f3268\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"OK\"}],\"phase\":\"final_answer\",\"role\":\"assistant\"}],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"prompt_cache_key\":null,\"prompt_cache_retention\":null,\"reasoning\":{\"effort\":null,\"summary\":null},\"safety_identifier\":null,\"service_tier\":\"default\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":null},\"tool_choice\":\"auto\",\"tools\":[],\"top_logprobs\":0,\"top_p\":1.0,\"truncation\":\"disabled\",\"usage\":{\"input_tokens\":88,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":25,\"output_tokens_details\":{\"reasoning_tokens\":23},\"total_tokens\":113},\"user\":null,\"metadata\":{}},\"sequence_number\":36}\n\n"
+  expected_usage:
+    cached_input_tokens: 0
+    provider_reported_total: 113
+    total_tokens: 113
+    reasoning_tokens: 23
+    output_tokens: 25
+    source: "provider_final"
+    input_tokens: 88
+    final: true
+  expected_events:
+    - "response_started"
+    - "message_delta"
+    - "usage_updated"
+    - "completed"
+  expected_message:
+    role: "assistant"
+    content:
+      - type: "text"
+        text: "OK"
+id: "openai-responses/live-stream"

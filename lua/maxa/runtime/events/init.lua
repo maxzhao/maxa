@@ -27,13 +27,25 @@ local M = {}
 
 M.name = "events"
 
---- Minimal phase-0 event name set (plan §4.7). Callers should use these
---- constants rather than bare strings so misspellings fail fast.
+--- Minimal event name set (plan §4.7; W8 extends with the streaming parts
+--- events). Callers should use these constants rather than bare strings so
+--- misspellings fail fast. Phase-0 names are kept verbatim for compatibility;
+--- W8 only ADDS names (never renames/removes).
 M.events = {
   session_created = "session.created",
   request_submitted = "request.submitted",
+  -- W8: provider stream actually started (first content-bearing event).
+  request_started = "request.started",
   response_started = "response.started",
   message_delta = "message.delta",
+  -- W8: reasoning accumulation (visible only per ui.show_reasoning policy).
+  reasoning_delta = "reasoning.delta",
+  -- W8: tool-call lifecycle (recorded only; execution is a phase-2 concern).
+  tool_call_started = "tool_call.started",
+  tool_call_delta = "tool_call.delta",
+  tool_call_completed = "tool_call.completed",
+  -- W8: normalized usage snapshots (streaming-usage spec).
+  usage_updated = "usage.updated",
   response_completed = "response.completed",
   response_failed = "response.failed",
   response_cancelled = "response.cancelled",

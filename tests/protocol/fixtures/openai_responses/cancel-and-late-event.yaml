@@ -1,0 +1,45 @@
+# openai-responses/cancel-and-late-event: the driver cancels after chunk 2
+# (provider_options.cancel_at=2); every later frame (text delta and the
+# response.completed terminal) is REJECTED by request identity — the cancelled
+# stream must not leak late events or a false completion.
+id: openai-responses/cancel-and-late-event
+protocol: openai_responses
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Say hello.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+    cancel_at: 2
+  expected_body:
+    model: deepseek-v4-flash
+    input:
+      - type: message
+        role: user
+        content:
+          - type: input_text
+            text: Say hello.
+    store: false
+    stream: true
+response:
+  chunks:
+    - "event: response.created\ndata: {\"id\":\"resp_10\",\"object\":\"response\",\"created_at\":123465,\"status\":\"in_progress\",\"model\":\"deepseek-v4-flash\",\"output\":[]}\n\n"
+    - "event: response.output_item.added\ndata: {\"output_index\":0,\"output_item\":{\"id\":\"msg_10\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n"
+    - "event: response.output_text.delta\ndata: {\"item_id\":\"msg_10\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hello\"}\n\n"
+    - "event: response.output_text.delta\ndata: {\"item_id\":\"msg_10\",\"output_index\":0,\"content_index\":0,\"delta\":\" world\"}\n\n"
+    - "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_10\",\"object\":\"response\",\"status\":\"completed\",\"output\":[]}}\n\n"
+  # cancel_at=2: the driver cancels before feeding chunk 3, so only
+  # response.created (chunk 1) yields an event; chunks 3-5 are late-rejected.
+  expected_events:
+    - response_started
+  expected_message:
+    role: assistant
+    content: []
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: cancelled

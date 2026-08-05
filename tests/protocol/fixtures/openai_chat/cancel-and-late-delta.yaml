@@ -1,0 +1,47 @@
+# openai-chat/cancel-and-late-delta: after response.cancel_after chunks the
+# driver cancels the stream (adapter:cancel -> one terminal cancelled error);
+# every later frame (including the trailing [DONE]) is rejected by the adapter
+# and must not produce content events. Exactly one terminal event overall.
+id: openai-chat/cancel-and-late-delta
+protocol: openai_chat
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Tell me a long story.
+  normalized_tools: []
+  provider_options:
+    model: deepseek-v4-flash
+    stream: true
+  expected_body:
+    model: deepseek-v4-flash
+    messages:
+      - role: user
+        content: Tell me a long story.
+    stream: true
+    stream_options:
+      include_usage: true
+response:
+  cancel_after: 2
+  chunks:
+    - 'data: {"id":"chatcmpl-9","object":"chat.completion.chunk","created":123464,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}'
+    - 'data: {"id":"chatcmpl-9","object":"chat.completion.chunk","created":123464,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"content":" world"},"finish_reason":null}]}'
+    - 'data: {"id":"chatcmpl-9","object":"chat.completion.chunk","created":123464,"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"content":" LATE"},"finish_reason":null}]}'
+    - 'data: [DONE]'
+  expected_events:
+    - message_delta
+    - message_delta
+    - error
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: Hello world
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: cancelled
+  expected_error:
+    code: cancelled
+    terminal: true

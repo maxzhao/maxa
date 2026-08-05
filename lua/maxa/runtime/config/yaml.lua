@@ -21,7 +21,9 @@
 ---     the actual configuration fail-closed guarantee still holds one layer up in
 ---     `config.load` (schema/unknown-key/secret validation rejects bad data). We
 ---     keep this documented rather than silently promising strict YAML validation.
----   * `null`/`~` scalars decode to an empty table, not `nil`. Acceptable for
+---   * `null`/`~` scalars decode to the `yaml.null` marker (a Null-class table whose
+---     `tostring` is "yaml.null"), not `nil`. `config/init.lua` treats the marker as
+---     "absent" for scalar fields via `is_null_marker`; acceptable for
 ---     `.maxa/runtime.yaml` (schema validation treats empty-map/absent keys
 ---     similarly); documented in case a later phase needs strict nulls.
 ---   * multi-document YAML with a leading `---` yields an array of documents;

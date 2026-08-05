@@ -1,0 +1,44 @@
+# gemini-native/cancel-and-late-envelope: after response.cancel_after chunks the
+# driver cancels the stream (adapter:cancel -> one terminal cancelled error);
+# every later frame (a full content envelope and the trailing [DONE]) is
+# rejected by the adapter and must not produce events. Exactly one terminal.
+id: gemini-native/cancel-and-late-envelope
+protocol: gemini
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Tell me a long story.
+  normalized_tools: []
+  provider_options:
+    model: gemini-2.5-flash
+  expected_body:
+    contents:
+      - role: user
+        parts:
+          - text: Tell me a long story.
+response:
+  cancel_after: 2
+  chunks:
+    - 'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Partial"}]},"finishReason":null}]}'
+    - 'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"More"}]},"finishReason":null}]}'
+    - 'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"LATE"}]},"finishReason":"STOP"}]}'
+    - 'data: [DONE]'
+  expected_events:
+    - response_started
+    - message_delta
+    - message_delta
+    - error
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: PartialMore
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: cancelled
+  expected_error:
+    code: cancelled
+    terminal: true

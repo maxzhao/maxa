@@ -1,0 +1,50 @@
+# maxa 阶段1 真实 provider 验证配置（开发期验证资产，非交付运行时配置）。
+# 目标项目运行时配置在各自项目 <root>/.maxa/；本文件仅用于本仓库内 live 验证。
+# 凭据只按名引用（api_key_env），值从根目录 .env 的 DEEPSEEK_TEST_KEY 读取，不落盘。
+schema_version: 1
+project_id: maxa-dev
+provider:
+  default: deepseek-chat
+  definitions:
+    deepseek-chat:
+      protocol: openai_chat
+      base_url: https://api.deepseek.com
+      api_key_env: DEEPSEEK_TEST_KEY
+      model: deepseek-v4-flash
+      capabilities:
+        vision: false
+        tools: true
+        reasoning: true
+      request:
+        timeout_ms: 60000
+        connect_timeout_ms: 10000
+        retries: 0
+        proxy_env: null
+    deepseek-responses:
+      protocol: openai_responses
+      base_url: https://api.deepseek.com
+      api_key_env: DEEPSEEK_TEST_KEY
+      model: deepseek-v4-flash
+      capabilities:
+        vision: false
+        tools: true
+        reasoning: true
+      request:
+        timeout_ms: 60000
+        connect_timeout_ms: 10000
+        retries: 0
+        proxy_env: null
+    deepseek-anthropic:
+      protocol: anthropic_messages
+      base_url: https://api.deepseek.com/anthropic
+      api_key_env: DEEPSEEK_TEST_KEY
+      model: deepseek-v4-flash
+      capabilities:
+        vision: false
+        tools: true
+        reasoning: true
+      request:
+        timeout_ms: 60000
+        connect_timeout_ms: 10000
+        retries: 0
+        proxy_env: null

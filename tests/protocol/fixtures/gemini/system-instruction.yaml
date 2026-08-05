@@ -1,0 +1,49 @@
+# gemini-native/system-instruction: system/project messages map to the text-only
+# systemInstruction.parts list (one text part per system text part), never into
+# contents[]. The reply envelope carries no usageMetadata.
+id: gemini-native/system-instruction
+protocol: gemini
+mode: streamed
+request:
+  normalized_messages:
+    - role: system
+      content:
+        - type: text
+          text: You are a helpful assistant.
+    - role: system
+      content:
+        - type: text
+          text: Be concise.
+    - role: user
+      content:
+        - type: text
+          text: Hi
+  normalized_tools: []
+  provider_options:
+    model: gemini-2.5-flash
+  expected_body:
+    systemInstruction:
+      parts:
+        - text: You are a helpful assistant.
+        - text: Be concise.
+    contents:
+      - role: user
+        parts:
+          - text: Hi
+response:
+  chunks:
+    - 'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Understood."}]},"finishReason":"STOP"}]}'
+    - 'data: [DONE]'
+  expected_events:
+    - response_started
+    - message_delta
+    - finish_reason
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: Understood.
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: completed

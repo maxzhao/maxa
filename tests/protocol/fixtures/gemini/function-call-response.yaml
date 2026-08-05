@@ -1,0 +1,64 @@
+# gemini-native/function-call-response: tool-only response with a functionCall
+# part WITHOUT a provider id -> synthetic stable id `gem-call-1` marked
+# id_source="synthetic". Arguments arrive complete (no tool_args_delta).
+id: gemini-native/function-call-response
+protocol: gemini
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: What is the weather in Beijing?
+  normalized_tools:
+    - name: get_weather
+      description: Get the current weather for a city
+      parameters:
+        type: object
+        properties:
+          city:
+            type: string
+        required:
+          - city
+  provider_options:
+    model: gemini-2.5-flash
+  expected_body:
+    contents:
+      - role: user
+        parts:
+          - text: What is the weather in Beijing?
+    tools:
+      - functionDeclarations:
+          - name: get_weather
+            description: Get the current weather for a city
+            parameters:
+              type: object
+              properties:
+                city:
+                  type: string
+              required:
+                - city
+response:
+  chunks:
+    - 'data: {"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"get_weather","args":{"city":"Beijing"}}}]},"finishReason":"STOP"}]}'
+    - 'data: [DONE]'
+  expected_events:
+    - response_started
+    - tool_call_started
+    - tool_call_completed
+    - finish_reason
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: tool_call
+        call_id: gem-call-1
+        name: get_weather
+        arguments: '{"city":"Beijing"}'
+  expected_tool_calls:
+    - call_id: gem-call-1
+      name: get_weather
+      arguments:
+        city: Beijing
+  expected_usage: {}
+  expected_terminal: completed

@@ -1,0 +1,43 @@
+# gemini-native/image-part: user message with a text part plus an image part.
+# The image maps to native inlineData { mimeType, data } (payload carried by the
+# blob_ref; fixture uses a fixed base64 string). The reply is plain text.
+id: gemini-native/image-part
+protocol: gemini
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Describe this image.
+        - type: image
+          mime: image/png
+          blob_ref: aGVsbG8=
+  normalized_tools: []
+  provider_options:
+    model: gemini-2.5-flash
+  expected_body:
+    contents:
+      - role: user
+        parts:
+          - text: Describe this image.
+          - inlineData:
+              mimeType: image/png
+              data: aGVsbG8=
+response:
+  chunks:
+    - 'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"It is a picture."}]},"finishReason":"STOP"}]}'
+    - 'data: [DONE]'
+  expected_events:
+    - response_started
+    - message_delta
+    - finish_reason
+    - completed
+  expected_message:
+    role: assistant
+    content:
+      - type: text
+        text: It is a picture.
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: completed

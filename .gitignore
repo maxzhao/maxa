@@ -9,3 +9,6 @@ data
 
 # lazy.nvim plugin lock is generated locally; not part of this project snapshot
 lazy-lock.json
+
+# local secrets; never commit
+.env

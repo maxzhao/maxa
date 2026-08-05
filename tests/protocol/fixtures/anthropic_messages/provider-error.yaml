@@ -1,0 +1,36 @@
+# anthropic/provider-error: provider stream error frame (overloaded_error).
+# The error is a typed terminal failure (provider_unavailable), never converted
+# into a successful empty response by later transport callbacks.
+id: anthropic/provider-error
+protocol: anthropic_messages
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: "hi"
+  normalized_tools: []
+  provider_options:
+    model: "deepseek-v4-flash"
+  expected_body:
+    model: "deepseek-v4-flash"
+    max_tokens: 4096
+    stream: true
+    messages:
+      - role: user
+        content:
+          - type: text
+            text: "hi"
+response:
+  chunks:
+    - "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n"
+  expected_events:
+    - error
+  expected_message: {}
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_error:
+    code: provider_unavailable
+    message: "Overloaded"
+  expected_terminal: failed

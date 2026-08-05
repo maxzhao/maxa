@@ -1,0 +1,32 @@
+# gemini-native/api-error: a native REST error envelope inside the SSE stream.
+# The Gemini status is classified through the transport provider-type map
+# (RESOURCE_EXHAUSTED -> quota) into one typed terminal error event.
+id: gemini-native/api-error
+protocol: gemini
+mode: streamed
+request:
+  normalized_messages:
+    - role: user
+      content:
+        - type: text
+          text: Trigger an error.
+  normalized_tools: []
+  provider_options:
+    model: gemini-2.5-flash
+  expected_body:
+    contents:
+      - role: user
+        parts:
+          - text: Trigger an error.
+response:
+  chunks:
+    - 'data: {"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded"}}'
+  expected_events:
+    - error
+  expected_message: {}
+  expected_tool_calls: []
+  expected_usage: {}
+  expected_terminal: failed
+  expected_error:
+    code: quota
+    terminal: true
