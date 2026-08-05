@@ -351,9 +351,17 @@ end
 ---                (watchdog W7). When a session is supplied, `self.clock`
 ---                defaults to the session's own clock; nil otherwise (consumers
 ---                fall back to clock.default()).
----   tool_handlers?: table, injected ToolBatch handler table (W4; phase-3
----                replaces this with the real registry): name -> { run, cancel,
+---   tool_handlers?: table, injected ToolBatch handler table (W4; test/consumer
+---                injection contract, kept verbatim): name -> { run, cancel,
 ---                mode = "sync"|"async" } (see lua/maxa/runtime/tools/init.lua),
+---                injected handlers WIN over the registry (executor resolution
+---                order: injected first, then registry make_handler),
+---   tool_registry?: table|nil phase-3 W7 registry bridge: a tools/registry.lua
+---                instance. When the executor has no injected handler for a
+---                call name it resolves the definition through the registry
+---                (MCP/Skill tools become executable); unregistered tools keep
+---                the standard unknown-tool error path. nil = injected-only
+---                behavior (legacy tests unchanged),
 ---   config?:      table|nil config object whose `orchestrator` section seeds
 ---                the orchestrator config (W6; effective LazyVim opts tree),
 ---   orchestrator_config?: table|nil raw orchestrator config table (wins over
@@ -385,7 +393,10 @@ function M.new(opts)
     events = bus,
     conversation = conv,
     model = opts.model or "mock-model",
-    tool_handlers = opts.tool_handlers or {}, -- injected handler table (W4)
+    tool_handlers = opts.tool_handlers or {}, -- injected handler table (W4;
+    -- wins over the registry; `use_tool_handlers` keeps this contract)
+    tool_registry = opts.tool_registry, -- phase-3 W7 registry bridge (nil =
+    -- injected-only behavior for legacy consumers)
     _active_executor = nil, -- running ToolBatch executor (W4; cancelled by :stop())
     _stop_requested = false, -- W4/W6 hard-stop marker: stop() sets it; feeds the
     -- decision-table `stop` input slot (suppresses continuation even if the
@@ -452,6 +463,7 @@ function M:use_provider(provider)
   self.provider_record = nil
   self._provider_params = nil
   self._real_adapter = false
+  self._provider_tool_ids = nil -- W1: rebuilt on the next real request
   return self
 end
 
@@ -475,6 +487,7 @@ function M:use_provider_record(record, opts)
   self.provider_record = record
   self._provider_params = opts.params or nil
   self._real_adapter = false
+  self._provider_tool_ids = nil -- W1: rebuilt on the next real request
   if record and record.adapter and type(record.api_key) == "string" and record.api_key ~= "" then
     self.provider = record.adapter
     self.model = record.model or self.model
@@ -1176,6 +1189,16 @@ local function run_stream(self, cur, async)
         conversation = self.conversation,
         stack = self:_stack(),
         handlers = self.tool_handlers or {},
+        -- W7 registry bridge: with no injected handler for a call name the
+        -- executor resolves the definition through the tool registry
+        -- (MCP/Skill tools execute); unregistered tools keep the standard
+        -- unknown-tool error path. nil keeps the legacy injected-only
+        -- behavior (w8/w10 and state fixtures unchanged).
+        registry = self.tool_registry,
+        -- W1 wire-name -> registry-id map (built when the request tools were
+        -- filled): a provider call by the encoded name (e.g.
+        -- `fixture-echo-echo`) resolves back to the definition id.
+        provider_tool_ids = self._provider_tool_ids,
         events = self.events,
         clock = self.clock,
         request = cur.request,
@@ -1273,7 +1296,30 @@ local function run_stream(self, cur, async)
     end
     params = sp
     params.model = self.model or sp.model
-    params.normalized = { messages = self:_stack():to_table(), tools = {} }
+    -- W1 real-path tools: a provider with tool capability + an assembled tool
+    -- registry sends the registry definitions through the adapter's form_tools.
+    -- The provider-facing call name is the registry id ENCODED for the wire
+    -- (registry.provider_name: `server-id/tool-name` -> `server-id-tool-name`,
+    -- since OpenAI/Anthropic/Gemini function names reject `/` and `.`) —
+    -- unique per id, avoiding same-name ambiguity. The reverse map
+    -- (wire name -> registry id) is captured here and handed to the executor,
+    -- so a provider call by the wire name resolves back to the definition.
+    -- Providers without tool capability (mock/echo) or without a registry keep
+    -- the empty tools list — build_request then omits the `tools` field
+    -- entirely (contract: absent/empty tools omit the field).
+    local tools = {}
+    local provider_tool_ids = {}
+    if (provider.capabilities or {}).tools ~= false and self.tool_registry then
+      if type(provider.form_tools) == "function" then
+        tools = provider:form_tools(self.tool_registry:list())
+        local registry_mod = require("maxa.runtime.tools.registry")
+        for _, def in ipairs(self.tool_registry:list()) do
+          provider_tool_ids[registry_mod.provider_name(def)] = def.id
+        end
+      end
+    end
+    self._provider_tool_ids = provider_tool_ids
+    params.normalized = { messages = self:_stack():to_table(), tools = tools }
     -- Preserve host-provided setup extras that adapter:setup normalized away
     -- (e.g. anthropic_messages url/headers: setup() does not carry them, but
     -- stream() requires them — live.lua merges them into st_params the same way).

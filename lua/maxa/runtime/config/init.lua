@@ -253,6 +253,88 @@ end
 ---   * provider block cross-field constraints (protocol/capabilities/default).
 ---@param cfg table merged configuration tree
 ---@return table|nil err typed error on failure
+--- Allowed keys of the `mcp` config block (W7; fail-closed unknown-key style).
+M.MCP_KEYS = {
+  enabled = true,
+  servers_file = true,
+}
+--- Allowed keys of the `skills` config block and its `roots` sub-block (W7;
+--- roots mirror skills.discover default-roots kinds: bundled/config/project).
+M.SKILLS_KEYS = {
+  enabled = true,
+  roots = true,
+}
+M.SKILLS_ROOTS_KEYS = {
+  bundled = true,
+  config = true,
+  project = true,
+}
+
+--- Check the `mcp` block (W7): enabled toggle + project-relative servers file
+--- path. Unknown keys are fail-closed configuration errors (same style as the
+--- top-level key check). The servers file itself is validated by
+--- `mcp.config.load` at assembly time; here only the opts contract is checked.
+---@param mcp table|nil mcp block
+---@return table|nil err
+local function check_mcp_block(mcp)
+  if mcp == nil then
+    return nil
+  end
+  if type(mcp) ~= "table" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "mcp block must be a table")
+  end
+  for k in pairs(mcp) do
+    if type(k) == "string" and not M.MCP_KEYS[k] then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, ("mcp: unknown key %q (known: enabled, servers_file)"):format(k))
+    end
+  end
+  if mcp.enabled ~= nil and type(mcp.enabled) ~= "boolean" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "mcp.enabled must be a boolean")
+  end
+  if mcp.servers_file ~= nil and (type(mcp.servers_file) ~= "string" or mcp.servers_file == "") then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "mcp.servers_file must be a non-empty project-relative path")
+  end
+  return nil
+end
+
+--- Check the `skills` block (W7): enabled toggle + discovery-root switches
+--- (bundled/config/project). Unknown keys are fail-closed errors.
+---@param skills table|nil skills block
+---@return table|nil err
+local function check_skills_block(skills)
+  if skills == nil then
+    return nil
+  end
+  if type(skills) ~= "table" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "skills block must be a table")
+  end
+  for k in pairs(skills) do
+    if type(k) == "string" and not M.SKILLS_KEYS[k] then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, ("skills: unknown key %q (known: enabled, roots)"):format(k))
+    end
+  end
+  if skills.enabled ~= nil and type(skills.enabled) ~= "boolean" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "skills.enabled must be a boolean")
+  end
+  if skills.roots ~= nil then
+    if type(skills.roots) ~= "table" then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "skills.roots must be a table")
+    end
+    for k, v in pairs(skills.roots) do
+      if type(k) == "string" and not M.SKILLS_ROOTS_KEYS[k] then
+        return M.error(
+          schema.ERROR.INVALID_ARGUMENT,
+          ("skills.roots: unknown key %q (known: bundled, config, project)"):format(k)
+        )
+      end
+      if type(k) == "string" and type(v) ~= "boolean" then
+        return M.error(schema.ERROR.INVALID_ARGUMENT, ("skills.roots.%s must be a boolean"):format(k))
+      end
+    end
+  end
+  return nil
+end
+
 local function validate_config(cfg)
   if type(cfg) ~= "table" then
     return M.error(schema.ERROR.INVALID_ARGUMENT, "configure: opts must merge into a table")
@@ -275,6 +357,15 @@ local function validate_config(cfg)
   local err = check_provider_block(cfg.provider)
   if err then
     return err
+  end
+  -- W7: mcp/skills extension-content blocks (fail-closed, unknown keys rejected).
+  local merr = check_mcp_block(cfg.mcp)
+  if merr then
+    return merr
+  end
+  local serr = check_skills_block(cfg.skills)
+  if serr then
+    return serr
   end
   return nil
 end

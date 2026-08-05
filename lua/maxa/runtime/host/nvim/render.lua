@@ -62,12 +62,13 @@ end
 --- global `maxa_chat_foldtext()` used by the buffer foldtext option.
 M._fold_summaries = {}
 
----@private Buffer-level fold expression (chat-ui-folds): `### Reasoning` opens
---- a level-1 fold; any other `### ` section header closes it. Everything else
---- keeps the previous level, so the fold spans exactly the reasoning body.
+---@private Buffer-level fold expression (chat-ui-folds): `### Reasoning` and
+--- `### Tool:` (W7 result-detail folds) open a level-1 fold; any other `### `
+--- section header closes it. Everything else keeps the previous level, so the
+--- fold spans exactly the reasoning/tool-result body.
 function _G.maxa_chat_foldexpr()
   local line = vim.fn.getline(vim.v.lnum)
-  if line == "### Reasoning" then
+  if line == "### Reasoning" or line:sub(1, 8) == "### Tool" then
     return ">1"
   end
   if line:sub(1, 4) == "### " then

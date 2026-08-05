@@ -34,6 +34,14 @@ end
 local host = require("maxa.runtime.host.nvim")
 local events = require("maxa.runtime.events")
 local n = require("maxa.runtime.protocol.normalize")
+-- Scenario C (_pick_provider) reads config.effective, which is populated ONLY
+-- by maxa.setup (the LazyVim plugin config is lazy and never triggers in a
+-- headless test). Mirror tests/ui/config.lua / tests/w10/ui_chain.lua: run the
+-- real setup with the mother-repository LazyVim opts (deepseek definitions;
+-- credentials are env-name references only, never literals).
+local maxa_mod = require("maxa")
+local spec = require("plugins.maxa")[1]
+pcall(maxa_mod.setup, spec.opts or {})
 
 local function bind_view(v)
   local chat = vim.api.nvim_create_buf(false, true)
@@ -204,8 +212,29 @@ end
 -- F. Demo stream: reasoning fold + tool icon + usage (offline showcase)
 --------------------------------------------------------------------------------
 do
+  -- Offline mock chunks (reasoning + tool call + usage): previously hosted by
+  -- host-module demo helpers; inlined after the W2 demo cleanup so the UI
+  -- behavior assertions below keep running against a self-contained fixture.
+  local function mock_chunks()
+    local reasoning = {}
+    for i = 1, 40 do
+      reasoning[i] = ("thinking step %d about the request. "):format(i)
+    end
+    return {
+      n.reasoning_delta(table.concat(reasoning)),
+      n.message_delta("I inspected "),
+      n.tool_call_started("call_demo_1", "read_file"),
+      n.tool_args_delta("call_demo_1", '{"path": "demo.txt"}'),
+      n.tool_call_completed("call_demo_1", '{"content": "demo file"}'),
+      n.message_delta("the demo file and summarized it."),
+      n.usage_updated(n.normalize_usage({ input_tokens = 120, output_tokens = 40, total_tokens = 160 })),
+      n.usage_updated(
+        n.normalize_usage({ input_tokens = 120, output_tokens = 40, total_tokens = 160 }, { final = true })
+      ),
+    }
+  end
   local v = host.new({ provider = "mock", events = events.new() })
-  v.provider_params = { chunks = host._demo_chunks(), delay = 1 }
+  v.provider_params = { chunks = mock_chunks(), delay = 1 }
   bind_view(v)
   local res = v:submit("demonstrate", { async = true })
   check(res ~= nil and res.async == true, "F: demo async submit started")
@@ -229,14 +258,14 @@ do
 end
 
 --------------------------------------------------------------------------------
--- G. Layout option + MaxaDemo command
+-- G. Layout option + command registration sanity (W2 demo cleanup)
 --------------------------------------------------------------------------------
 do
   local v = host.new({ provider = "mock", events = events.new(), layout = "horizontal" })
   assert_eq(v.layout, "horizontal", "G: layout option propagated")
   local v2 = host.new({ provider = "mock", events = events.new() })
   assert_eq(v2.layout, host.DEFAULT_LAYOUT, "G: default layout (right-half split)")
-  check(vim.fn.exists(":MaxaDemo") == 2, "G: MaxaDemo command registered")
+  check(vim.fn.exists(":MaxaChat") == 2, "G: chat command still registered")
 end
 
 --------------------------------------------------------------------------------

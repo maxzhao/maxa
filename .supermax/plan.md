@@ -220,24 +220,76 @@ headless 脚本验证不算人工可审核。此条款为阶段1 gate 必要条�
 > 纵向：真实工具与外部能力。横向：工具/服务器事件与配置字段增全。
 
 ### 实现
-- [ ] Tool registry：schema 归一、自动执行（无 approval gate，显式产品策略）、批量 barrier 一次
-- [ ] async task 所有权/cancel/poll + TTL(result) 生命周期（discard/defer/keep/persist）
-- [ ] 外部 MCP stdio 进程生命周期（start/stop/restart/reload、capability revision、config diff）
-- [ ] 原生 MCP 原语注册（mcpx/cc_history/genai/json_artifact/subagent；移除 `misc` 桶）
-- [ ] Skill 发现/依赖/project-over-global 覆盖 + SkillHook（load/scope/filter/pre/post/once/cascade/restore）
-- [ ] config：`.maxa/mcp/servers.yaml`、skill 开关；开发仓库 `.supermax/` 不得作为运行时配置源
-- [ ] events：ToolCallStarted/Finished、MCP server-state、SkillHook 事件
+- [x] Tool registry：schema 归一、自动执行（无 approval gate，显式产品策略）、批量 barrier 一次
+- [x] async task 所有权/cancel/poll + TTL(result) 生命周期（discard/defer/keep/persist）
+- [x] 外部 MCP stdio 进程生命周期（start/stop/restart/reload、capability revision、config diff）
+- [x] 原生 MCP 原语注册机制（通用注册 API `register(def)` + 动态保留 ID，注册即保留；**不内置业务原语名**，具体原语由实现它们的阶段注册；移除 `misc` 桶，显式诊断原语 `diagnostics/echo`）
+- [x] Skill 发现/依赖/project-over-global 覆盖 + SkillHook（load/scope/filter/pre/post/once/cascade/restore）
+- [x] config：`.maxa/mcp/servers.yaml`、skill 开关；开发仓库 `.supermax/` 不得作为运行时配置源
+- [x] events：ToolCallStarted/Finished、MCP server-state、SkillHook 事件
 
 ### 伴随验证
-- [ ] 工具行（T-*）：invalid-json、missing-required-field、automatic-sync-success、automatic-failure、
+- [x] 工具行（T-*）：invalid-json、missing-required-field、automatic-sync-success、automatic-failure、
   async-success/cancel-late、parallel-barrier、display-projection、ttl-result
   （注：display-projection 中图标/折叠/状态色 L0 部分在阶段1.5 chat-ui-folds 落地；本条验证
   完整结果详情投影，依赖本阶段真实工具运行时）
-- [ ] MCP 行（T-006/007 + mcp/*）：config-valid/invalid、external-start-ready/fail、request-timeout、stop、
+- [x] MCP 行（T-006/007 + mcp/*）：config-valid/invalid、external-start-ready/fail、request-timeout、stop、
   restart-concurrent、config-reload、native-register/duplicate/enable-disable
-- [ ] Skill 行（T-008/009/010 + skill/*）：project-overrides-global、dependency-order、startup/on-load/cascade、
+- [x] Skill 行（T-008/009/010 + skill/*）：project-overrides-global、dependency-order、startup/on-load/cascade、
   pre-submit、post-observer、once-restore、filter、lua-hook-failure
-- [ ] 时刻关键：parallel-barrier（ToolBatchFinished 一次）、async-cancel-late-result（迟到成功不覆盖取消）
+- [x] 时刻关键：parallel-barrier（ToolBatchFinished 一次）、async-cancel-late-result（迟到成功不覆盖取消）
+
+> **阶段3 gate 声明（2026-08-05）**：✅ 技术验证通过（人工可审核条款待用户 UI 实测）。
+> **2026-08-05 真实路径修正（W1/W2）**：补运行时装配链（runtime/assemble：tool_registry +
+> MCP registry/apply_config + skills discover/loader 注入 host 默认视图）与请求 tools 填充
+> （orchestrator 按 provider capability 调用 adapter `form_tools`，wire 名 = id 编码
+> `server-tool`，executor 经 provider_tool_ids 反查回 registry id——OpenAI/Anthropic/Gemini
+> 实测拒绝含 `/` 的工具名）；`:MaxaDemo` 演示命令与相关代码已移除（真实对话可完成测试）。
+> 测试：tests/tools/assemble.lua（装配链）、request-tools.lua（请求 tools 断言 + 四协议
+> form_tools 形状）、gate.lua 增真实装配链与请求构造断言；w10 内容断言放宽（模型可能调用
+> 工具或偶发空流，plumbing 断言保持严格）。
+>
+> 技术证据（主会话逐波复验全绿）：`just test-gate` P3_GATE_OK——外部 MCP（真实 node stdio
+> 进程 tests/mcp/fixtures/stdio_server.mjs，initialize→initialized→tools/list→tools/call 全握手）
+> 与 demo Skill（skills/demo-echo，tools/echo.lua 工具注册）从发现（.maxa/mcp/servers.yaml）→
+> 注册（fixture-echo/echo + demo-echo/echo）→调用（真实 JSON-RPC 往返）→结果持久化（tool 消息
+> 先于 barrier）→host 投影（✅ 状态行、### Tool: 折叠、foldtext 含真实结果）→barrier 恰一次 →
+> 自动续跑（continuation.decided 恰一次）；全程无 `.supermax` 路径、无 HTTP transport、import-guard
+> 干净。工具 12/12（T-*：invalid-json/missing-required/automatic-sync/automatic-failure/async-success/
+> async-cancel-late-result/parallel-barrier/display-projection/ttl-result）、MCP 12/12（mcp/* 全行 +
+> native-register/duplicate/enable-disable/nvim-exit）、Skill 12/12（project-overrides/dependency-order/
+> startup/on-load/cascade/pre-submit/post-observer/once-restore/filter/lua-hook-failure）、test-state
+> 33/33、test-config、test-protocol 41、test-protocol-unit 16+67、ui 五套、w8/w10 链全绿。
+> gate 暴露并修复：W3 mcp/server.lua run 闭包 task.complete 参数错误（批处理悬挂）——集成测试价值。
+> 事件：mcp.server_state + skill.hook_registered/fired/failed/restored（additive，events-status envelope）。
+>
+> **人工实测步骤（用户按此在 UI 中复核确认；2026-08-05 修正为真实路径——W1 运行时装配链 + W2 移除 MaxaDemo 后，真实对话即可触发工具执行）**：
+> 1. 前置：仓库根创建 `.maxa/mcp/servers.yaml`，示例：
+>    ```yaml
+>    schema_version: 1
+>    servers:
+>      fixture-echo:
+>        enabled: true
+>        transport: stdio
+>        command: node
+>        args: ["/home/maxzhao/maxa/tests/mcp/fixtures/stdio_server.mjs"]
+>        cwd: "/home/maxzhao/maxa"
+>        request_timeout_ms: 10000
+>        startup_timeout_ms: 10000
+>    ```
+> 2. `cd ~/maxa && just run`（或 `NVIM_APPNAME=nvim-maxa nvim`）；`:MaxaChat` 打开；
+>    `:MaxaProvider deepseek-chat`（真实模型）。运行时装配（runtime.assemble）自动读取
+>    servers.yaml 启动外部 MCP 进程、发现并加载 skills/demo-echo，工具注册进 tool registry
+>    并随真实 provider 请求携带工具 schema。
+> 3. 输入引导使用工具的提示词（如"请使用 echo 工具把 hello 返回给我"）→ 真实模型读到
+>    请求中携带的工具 schema（wire 名 `fixture-echo-echo` / `demo-echo-echo`）后自主发起调用
+>    → 观察：工具行状态图标（⚡→✅）、`### Tool:` 结果折叠（zo/zc 展开、foldtext 含真实结果）、
+>    结果后模型自动续跑、状态行 busy→completed + usage。
+> 4. 反向检验：注释/改名 servers.yaml 后重启 → Chat 仍可用（MCP 缺席容错，工具调用转为
+>    标准 unknown-tool 错误）；`.supermax/` 全程不参与。
+> 5. 全部符合预期 → 人工审核通过，阶段3 gate 成立（headless 证据见上）。
+> 配置参考：`lua/maxa/init.lua` `M.defaults` `mcp`/`skills` 字段（servers_file/roots 开关）。
+>
 
 **本层 gate**：一个外部 MCP + 一个 Skill 从发现→注册→调用→结果展示的操作链路通。
 

@@ -119,10 +119,15 @@ M.DEFAULT_SHOW_REASONING = false
 -- Chat window layout (chat-ui layout): "vertical" (right-half split, default),
 -- "horizontal" (bottom split), "float" (centered half-width float).
 M.DEFAULT_LAYOUT = "vertical"
+-- W1: the assembled tool registry (maxa.runtime.assemble output) becomes the
+-- registry default for views created without an explicit `tool_registry` opt
+-- (e.g. `_get_default()`); nil keeps the legacy injected-only behavior.
+M.DEFAULT_TOOL_REGISTRY = nil
 
 --- Override the view defaults from the maxa config.
 --- Called by `require("maxa").setup`; keeps host free of a maxa/init circular require.
----@param opts? table { provider?: string, model?: string, show_reasoning?: boolean, layout?: string }
+---@param opts? table { provider?: string, model?: string, show_reasoning?: boolean, layout?: string,
+---   tool_registry?: table|nil assembled tool registry (W1) }
 ---@return table self
 function M.set_defaults(opts)
   opts = opts or {}
@@ -137,6 +142,9 @@ function M.set_defaults(opts)
   end
   if opts.layout then
     M.DEFAULT_LAYOUT = opts.layout
+  end
+  if opts.tool_registry ~= nil then
+    M.DEFAULT_TOOL_REGISTRY = opts.tool_registry
   end
   return M
 end
@@ -159,6 +167,19 @@ M.UI = {
   tool_completed_icon = "✅",
   tool_failed_icon = "❌",
   tool_call_fmt = "%s %s",
+  -- W7 tool output fold (chat-ui-folds, result-detail collapsible): the fold
+  -- header opens a level-1 fold whose body is the projected result detail; the
+  -- foldtext summary is the always-visible tool result line
+  -- (icon + name + summary) while collapsed. `zo`/`zc` toggle it.
+  tool_header_fmt = "### Tool: %s",
+  tool_summary_fmt = "[%s %s: %s]",
+  tool_pending_summary = "running…",
+  tool_empty_summary = "no result",
+  -- Display projection bounds: the summary is the bounded first line; the fold
+  -- body is bounded in total lines so a huge tool result cannot blow up the
+  -- render (the persisted/API result is never truncated or touched).
+  tool_summary_max = 120,
+  tool_detail_max_lines = 60,
   -- Streaming-cursor virtual-text marker (never persisted into buffer content).
   cursor_marker = "▍",
   -- Input-area placeholder (chat-ui-input): shown only while the prompt is
@@ -243,6 +264,11 @@ end
 ---   events?:      table event bus (default: global events module),
 ---   auto_open?:   boolean open the window pair immediately (default false),
 ---   provider_params?: table forwarded to provider.stream on each submit,
+---   tool_handlers?: table forwarded to the orchestrator (W4 injected
+---     ToolBatch handlers; wins over the registry),
+---   tool_registry?: table|nil forwarded to the orchestrator (W7 registry
+---     bridge: registry-resolved MCP/Skill tools execute when no injected
+---     handler exists),
 --- }
 ---@return table view
 ---@private Resolve a provider for a fresh view (or set_provider): built-in
@@ -303,9 +329,16 @@ function M.new(opts)
 
   -- The orchestrator owns the stream loop and asserts that a provider is attached
   -- before the first submit, so attach the initial provider before returning.
+  -- W7: the registry bridge (opts.tool_registry) and injected handlers
+  -- (opts.tool_handlers) are forwarded so registry-resolved MCP/Skill tools
+  -- execute through the orchestrator's ToolBatch executor.
   local orch = orchestrator.new({
     model = opts.model or M.DEFAULT_MODEL,
     events = bus,
+    tool_handlers = opts.tool_handlers,
+    -- W1: explicit registry wins; otherwise the assembled default (set by
+    -- maxa.setup through set_defaults) so default views see MCP/skill tools.
+    tool_registry = opts.tool_registry or M.DEFAULT_TOOL_REGISTRY,
   })
   if record then
     -- Real provider (W10.2): the orchestrator binds the adapter when the key is
@@ -333,6 +366,11 @@ function M.new(opts)
     soft_stop = false, -- W6: soft stop requested (manual or context-stop); the
     -- status projection shows "soft-stop requested" once the drain boundary lands
     usage = nil, -- latest/final normalized usage (W8: schema.usage snapshot)
+    -- W7 tool display projection (call_id -> { exec_status, summary, detail }):
+    -- a READ-ONLY projection of the persisted role="tool" stack messages. It is
+    -- display data only — rendering never mutates the persisted/API result
+    -- (tool-runtime §Result and UI separation).
+    _tool_display = {},
     show_reasoning = (opts.show_reasoning == nil) and M.DEFAULT_SHOW_REASONING or not not opts.show_reasoning,
     layout = opts.layout or M.DEFAULT_LAYOUT,
     errors = {}, -- non-terminal informational errors surfaced to the user
@@ -471,6 +509,13 @@ function View:_subscribe()
   end)
   sub(self.events.events.tool_call_completed or "tool_call.completed", function(payload)
     self:_on_tool_call_completed(payload)
+  end)
+  -- W7: execution-side tool result (tool_call.finished fires once per executed
+  -- call AFTER its result is persisted, with the runtime result status). The
+  -- view projects the persisted result into the display-only fold data; the
+  -- persisted/API result messages are NEVER mutated by rendering.
+  sub(self.events.events.tool_call_finished or "tool_call.finished", function(payload)
+    self:_on_tool_call_finished(payload)
   end)
   sub(self.events.events.usage_updated or "usage.updated", function(payload)
     self:_on_usage_updated(payload)
@@ -618,6 +663,87 @@ function View:_on_tool_call_completed(payload)
     end
   end
   self:_render()
+end
+
+---@private W7: project the executed call's persisted result into the display
+--- fold data (read-only; the persisted/API result message is never mutated).
+--- `tool_call.finished` fires after the executor persisted the role="tool"
+--- message, so the stack projection is always available at this point.
+function View:_on_tool_call_finished(payload)
+  if self.status == "closed" then
+    return
+  end
+  local call_id = payload and payload.call_id
+  if not call_id then
+    return
+  end
+  local proj = self:_tool_result_projection(call_id)
+  self._tool_display[call_id] = {
+    exec_status = (payload and payload.status) or "error",
+    summary = proj and proj.summary or nil,
+    detail = proj and proj.detail or nil,
+  }
+  self:_render()
+end
+
+---@private Read-only projection of the persisted role="tool" message for one
+--- call id: scans the orchestrator's message stack for the tool_result part and
+--- derives a bounded display summary + detail text. The stack is NEVER modified
+--- (tool-runtime §Result and UI separation: display summary/markdown and
+--- persisted/API result are separate projections; TTL cleanup of auxiliary
+--- payloads does not affect provider pairing).
+---@param call_id string
+---@return table|nil { status=string|nil, content=string, summary=string, detail=string }
+function View:_tool_result_projection(call_id)
+  local stack = self.orch and self.orch.messages
+  if not stack or not stack.iter then
+    return nil
+  end
+  local content = nil
+  local status = nil
+  for msg in stack:iter() do
+    if msg and msg.role == "tool" and type(msg.content) == "table" then
+      for _, part in ipairs(msg.content) do
+        if part and part.type == "tool_result" and part.call_id == call_id then
+          status = part.status or status
+          content = (content or "") .. tostring(part.content or "")
+        end
+      end
+    end
+  end
+  if content == nil then
+    return nil
+  end
+  -- Summary: bounded first non-empty line of the projected content.
+  local summary = M.UI.tool_empty_summary
+  for line in content:gmatch("([^\n]*)") do
+    if line ~= "" then
+      summary = #line > M.UI.tool_summary_max and (line:sub(1, M.UI.tool_summary_max) .. "…") or line
+      break
+    end
+  end
+  -- Detail: bounded total lines (the persisted content itself is untouched).
+  local detail = {}
+  local count = 0
+  for part in content:gmatch("([^\n]*)\n?") do
+    if count >= M.UI.tool_detail_max_lines then
+      detail[#detail + 1] = "… (display truncated)"
+      break
+    end
+    if part ~= "" or part:find("\n") then
+      detail[#detail + 1] = part
+      count = count + 1
+    end
+  end
+  if #detail == 0 then
+    detail[1] = summary
+  end
+  return {
+    status = status,
+    content = content,
+    summary = summary,
+    detail = table.concat(detail, "\n"),
+  }
 end
 
 ---@private Track the latest normalized usage snapshot (W8; final one wins on
@@ -1430,10 +1556,11 @@ function View:_build()
     out.markers[#out.markers + 1] = { line = #lines, kind = "header" }
     if item.role == "assistant" then
       -- W8 reasoning part: always rendered as a typed collapsible block
-      -- (`### Reasoning` header + body + `### Response`; chat-ui-folds). The
-      -- body is a real level-1 fold; `show_reasoning` only controls the default
-      -- foldlevel (false => folded, true => expanded) and the fold foldtext
-      -- shows the `[reasoning N chars]` summary.
+      -- (`### Reasoning` header + body; chat-ui-folds). The body is a real
+      -- level-1 fold; `show_reasoning` only controls the default foldlevel
+      -- (false => folded, true => expanded) and the fold foldtext shows the
+      -- `[reasoning N chars]` summary. The fold closes at the next `### `
+      -- header (first tool fold or `### Response`).
       local reasoning = item.reasoning or ""
       if reasoning ~= "" then
         lines[#lines + 1] = M.UI.reasoning_header
@@ -1448,10 +1575,14 @@ function View:_build()
             lines[#lines + 1] = part
           end
         end
-        lines[#lines + 1] = M.UI.response_header
       end
-      -- W8 tool_call parts: icon + name status line (never executed here);
-      -- chat-ui-folds adds per-status icons/colors with a stable id.
+      -- W8 tool_call parts + W7 result-detail folds. The legacy status line
+      -- (icon + name, provider-side projection) stays verbatim; each call adds
+      -- a `### Tool: <name>` level-1 fold whose body is the READ-ONLY display
+      -- projection of the persisted tool_result (never the persisted message
+      -- itself) and whose foldtext is the execution-aware result line
+      -- (icon + name + summary; zo/zc toggles the detail). The next `### `
+      -- header (next tool fold or `### Response`) closes the fold.
       for _, tc in ipairs(item.tool_calls or {}) do
         local icon = M.tool_icon(tc.status)
         lines[#lines + 1] = M.UI.tool_call_fmt:format(icon, tc.name or "?")
@@ -1461,6 +1592,32 @@ function View:_build()
           status = tc.status or "started",
           id = ("tool:%s"):format(tc.call_id or "?"),
         }
+        local disp = self._tool_display[tc.call_id]
+        local exec_status = disp and disp.exec_status or "pending"
+        local exec_icon = exec_status == "success" and M.UI.tool_completed_icon
+          or (exec_status == "error" and M.UI.tool_failed_icon)
+          or M.UI.tool_pending_icon
+        local summary = (disp and disp.summary) or M.UI.tool_pending_summary
+        lines[#lines + 1] = M.UI.tool_header_fmt:format(tc.name or "?")
+        out.markers[#out.markers + 1] = {
+          line = #lines,
+          kind = "tool-fold",
+          status = exec_status == "success" and "completed" or (exec_status == "error" and "failed" or "started"),
+          id = ("tool:%s"):format(tc.call_id or "?"),
+          summary = M.UI.tool_summary_fmt:format(exec_icon, tc.name or "?", summary),
+        }
+        if disp and disp.detail then
+          for part in disp.detail:gmatch("([^\n]*)\n?") do
+            if part ~= "" or part:find("\n") then
+              lines[#lines + 1] = part
+            end
+          end
+        end
+      end
+      -- `### Response`: closes any open reasoning/tool fold (foldexpr treats
+      -- every `### ` header as a fold end) and introduces the visible text.
+      if reasoning ~= "" or (item.tool_calls and #item.tool_calls > 0) then
+        lines[#lines + 1] = M.UI.response_header
       end
     end
     if item.text and item.text ~= "" then
@@ -1585,11 +1742,12 @@ function View:_render()
   if mode ~= "noop" then
     render.apply_extmarks(self._buf, built.lines, built.markers)
     -- chat-ui-folds: keep foldtext summaries in sync with the rendered lines
-    -- (the reasoning fold summary shows the body char count) and apply the
-    -- default foldlevel from show_reasoning (folded <=> not show_reasoning).
+    -- (the reasoning fold summary shows the body char count; the W7 tool-fold
+    -- summary shows the execution-aware result line) and apply the default
+    -- foldlevel from show_reasoning (folded <=> not show_reasoning).
     render.clear_fold_summaries(self._buf)
     for _, m in ipairs(built.markers) do
-      if m.kind == "reasoning" and m.summary then
+      if m.summary and (m.kind == "reasoning" or m.kind == "tool-fold") then
         render.set_fold_summary(self._buf, m.line, m.summary)
       end
     end
@@ -1803,40 +1961,6 @@ function M.shutdown()
   return report
 end
 
----@private Demo stream chunks: a long reasoning block + one tool call + usage,
---- so the reasoning fold and tool status icons are directly visible offline.
----@return table[] normalize chunk records
-function M._demo_chunks()
-  local n = require("maxa.runtime.protocol.normalize")
-  local reasoning = {}
-  for i = 1, 40 do
-    reasoning[i] = ("thinking step %d about the request. "):format(i)
-  end
-  return {
-    n.reasoning_delta(table.concat(reasoning)),
-    n.message_delta("I inspected "),
-    n.tool_call_started("call_demo_1", "read_file"),
-    n.tool_args_delta("call_demo_1", '{"path": "demo.txt"}'),
-    n.tool_call_completed("call_demo_1", '{"content": "demo file"}'),
-    n.message_delta("the demo file and summarized it."),
-    n.usage_updated(n.normalize_usage({ input_tokens = 120, output_tokens = 40, total_tokens = 160 })),
-    n.usage_updated(
-      n.normalize_usage({ input_tokens = 120, output_tokens = 40, total_tokens = 160 }, { final = true })
-    ),
-  }
-end
-
---- Open a demo session: mock stream with reasoning + tool call + usage, so the
---- reasoning fold and tool status icons are directly visible (offline, no key).
----@return table view
-function M.open_demo()
-  local v = M._get_default()
-  v.provider_params = { chunks = M._demo_chunks(), delay = 20 }
-  v:open()
-  v:submit("demonstrate reasoning and tools", { async = true })
-  return v
-end
-
 ---@private Idempotent user-command registration.
 function M.setup()
   -- Idempotence via a module flag, NOT command existence: lazy.nvim registers
@@ -1892,9 +2016,6 @@ function M.setup()
       v:_pick_model()
     end
   end, { desc = "maxa: set display model label (no arg: interactive input)", nargs = "*" })
-  vim.api.nvim_create_user_command("MaxaDemo", function()
-    M.open_demo()
-  end, { desc = "maxa: demo session (mock reasoning + tool call stream)", nargs = 0 })
 end
 
 -- Register commands on load so `:MaxaChat` exists whenever this module is required.

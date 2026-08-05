@@ -457,6 +457,35 @@ function adapter.normalize_usage(self, raw, opts)
   return normalize.normalize_usage(raw, opts)
 end
 
+--- form_tools: registry definitions -> OpenAI Chat function tools (W1 real
+--- path). The provider-facing call name is the registry id encoded for the
+--- wire (`registry.provider_name`: `server-id/tool-name` -> `server-id-tool-name`,
+--- since OpenAI function names only accept `^[a-zA-Z0-9_-]+$`) — unique per
+--- id, so same-named tools from different servers never collide; execution
+--- resolves the wire name back to the registry id through the orchestrator's
+--- provider-name map. `input_schema` is copied per provider (adaptation never
+--- touches the normalized definition — build_request consumes these records
+--- verbatim).
+---@param self table
+---@param defs table[] registry:list() definitions
+---@return table[] tools { { type="function", function={ name, description, parameters } }, ... }
+function adapter.form_tools(self, defs)
+  local registry_mod = require("maxa.runtime.tools.registry")
+  local jschema = require("maxa.runtime.tools.schema")
+  local out = {}
+  for _, def in ipairs(defs or {}) do
+    out[#out + 1] = {
+      type = "function",
+      ["function"] = {
+        name = registry_mod.provider_name(def),
+        description = def.description,
+        parameters = jschema.copy(def.input_schema),
+      },
+    }
+  end
+  return out
+end
+
 --- finish_stream: end-of-stream finalization (flush open tool calls).
 ---@return table|nil events tool_call_completed event(s), or nil
 function adapter.finish_stream(self)

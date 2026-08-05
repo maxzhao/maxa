@@ -30,7 +30,7 @@ return {
     name = "maxa",
     dir = repo_root .. "/lua/maxa", -- minimal source carrier; runtime modules live here
     lazy = true,
-    cmd = { "MaxaChat", "MaxaStop", "MaxaClose", "MaxaClear", "MaxaProvider", "MaxaModel", "MaxaDemo" },
+    cmd = { "MaxaChat", "MaxaStop", "MaxaClose", "MaxaClear", "MaxaProvider", "MaxaModel" },
     keys = { {
       "<leader>mx",
       "<cmd>MaxaChat<cr>",

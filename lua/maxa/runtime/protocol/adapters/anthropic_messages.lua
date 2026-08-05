@@ -297,6 +297,31 @@ function adapter:_build_tools(tools)
   return out
 end
 
+--- form_tools: registry definitions -> Anthropic tool declarations (W1 real
+--- path). The provider-facing call name is the registry id encoded for the
+--- wire (`registry.provider_name`: `server-id/tool-name` ->
+--- `server-id-tool-name`; Anthropic tool names only accept
+--- `^[a-zA-Z0-9_-]{1,64}$`) — unique per id, so same-named tools from
+--- different servers never collide; execution resolves the wire name back to
+--- the registry id through the orchestrator's provider-name map. `input_schema`
+--- is copied per provider (`build_request` / `_build_tools` consumes these
+--- records and never touches the normalized definition).
+---@param defs table[] registry:list() definitions
+---@return table[] tools { { name, description, input_schema }, ... }
+function adapter:form_tools(defs)
+  local registry_mod = require("maxa.runtime.tools.registry")
+  local jschema = require("maxa.runtime.tools.schema")
+  local out = {}
+  for _, def in ipairs(defs or {}) do
+    out[#out + 1] = {
+      name = registry_mod.provider_name(def),
+      description = def.description,
+      input_schema = jschema.copy(def.input_schema),
+    }
+  end
+  return out
+end
+
 --- Normalize a provider usage object into the schema.usage snapshot (unified
 --- adapter `normalize_usage`). Anthropic reports complete usage per message, so
 --- snapshots default to `final=true`; cache fields are preserved separately and

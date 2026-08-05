@@ -318,9 +318,36 @@ function adapter:build_request(params, normalized)
   return body
 end
 
-----------------------------------------------------------------------------
+--- form_tools: registry definitions -> OpenAI Responses function tools (W1
+--- real path). The provider-facing call name is the registry id encoded for
+--- the wire (`registry.provider_name`: `server-id/tool-name` ->
+--- `server-id-tool-name`; Responses function names only accept
+--- `^[a-zA-Z0-9_-]+$`) — unique per id, so same-named tools from different
+--- servers never collide; execution resolves the wire name back to the
+--- registry id through the orchestrator's provider-name map. `parameters` is a
+--- per-provider schema copy — the recursive strict-mode normalization in
+--- build_request operates on these copies and never touches the normalized
+--- definition.
+---@param defs table[] registry:list() definitions
+---@return table[] tools { { type="function", name, description, parameters }, ... }
+function adapter:form_tools(defs)
+  local registry_mod = require("maxa.runtime.tools.registry")
+  local jschema = require("maxa.runtime.tools.schema")
+  local out = {}
+  for _, def in ipairs(defs or {}) do
+    out[#out + 1] = {
+      type = "function",
+      name = registry_mod.provider_name(def),
+      description = def.description,
+      parameters = jschema.copy(def.input_schema),
+    }
+  end
+  return out
+end
+
+------------------------------------------------------------------------------
 -- Stream parsing
-----------------------------------------------------------------------------
+------------------------------------------------------------------------------
 
 --- Stable call identity of a recorded function_call item: the provider
 --- `call_id` (pairing key for function_call_output) wins; `id` is the fallback.

@@ -297,6 +297,31 @@ function adapter:build_request(params, normalized)
   return body
 end
 
+--- form_tools: registry definitions -> Gemini functionDeclarations records
+--- (W1 real path; consumed by `_build_tools` inside build_request). The
+--- provider-facing call name is the registry id encoded for the wire
+--- (`registry.provider_name`: `server-id/tool-name` -> `server-id-tool-name`;
+--- Gemini function names only accept `^[a-zA-Z0-9_-]+$`) — unique per id, so
+--- same-named tools from different servers never collide; execution resolves
+--- the wire name back to the registry id through the orchestrator's
+--- provider-name map. `parameters` is a per-provider schema copy (adaptation
+--- never touches the definition).
+---@param defs table[] registry:list() definitions
+---@return table[] tools { { name, description, parameters }, ... }
+function adapter:form_tools(defs)
+  local registry_mod = require("maxa.runtime.tools.registry")
+  local jschema = require("maxa.runtime.tools.schema")
+  local out = {}
+  for _, def in ipairs(defs or {}) do
+    out[#out + 1] = {
+      name = registry_mod.provider_name(def),
+      description = def.description,
+      parameters = jschema.copy(def.input_schema),
+    }
+  end
+  return out
+end
+
 --- Emit the normalized events for one native functionCall part.
 ---@param fc table raw functionCall { id?, name, args }
 ---@param events table[] event accumulator

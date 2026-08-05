@@ -93,6 +93,27 @@ M.events = {
   -- reason "watchdog_exhausted" + counters). Payload: { session_id, request_id,
   -- generation, retry_count, max_retries, reason = "no_message"|"no_progress" }.
   watchdog_retry = "watchdog.retry",
+  -- W3 (phase-3): external MCP server lifecycle projection (additive). Emitted
+  -- once per server state transition with payload { server_id, state, revision,
+  -- reason, kind, generation } (revision = per-server monotonic state revision);
+  -- after a registry config reload the registry emits exactly one aggregate
+  -- update: { aggregate = true, reason = "config_reload",
+  --   servers = { [id] = { kind, state, revision, generation,
+  --                        capabilities_revision } } }.
+  mcp_server_state = "mcp.server_state",
+  -- W6 (phase-3): SkillHook lifecycle projections (additive). Emitted by the
+  -- SkillHook machinery (skills/registry.lua, skills/fire.lua,
+  -- skills/injector.lua) through the same bus; payload follows the
+  -- events-status §SkillHook envelope: session_id/request_id/turn_id (where
+  -- applicable), skill_id, event_name, phase, ok, error.
+  --   * skill.hook_registered: phase = hook load phase ("startup"|"on_load");
+  --   * skill.hook_fired / skill.hook_failed: phase = inject_at ("pre"|"post");
+  --     hook_fired carries `injected` (pre) or 0 (post observer);
+  --   * skill.hook_restored: phase = "restore", carries `restored` count.
+  skill_hook_registered = "skill.hook_registered",
+  skill_hook_fired = "skill.hook_fired",
+  skill_hook_failed = "skill.hook_failed",
+  skill_hook_restored = "skill.hook_restored",
 }
 
 -- event -> array of callbacks (preserves registration order = dispatch order).

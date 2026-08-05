@@ -1,26 +1,39 @@
 -- filepath: lua/maxa/runtime/tools/init.lua
---- maxa runtime minimal ToolBatch executor (phase-2 W4).
+--- maxa runtime minimal ToolBatch executor (phase-2 W4, phase-3 W1 bridge).
 ---
---- Scope: executes one ToolBatch entity (session.new_tool_batch output) with an
---- injected handler table. Phase-3 replaces the handler table with the real
---- registry/schema; this wave ships only the execution + persistence + barrier
---- machinery (tool-runtime spec §Call lifecycle / §Batch and concurrency policy).
+--- Scope: executes one ToolBatch entity (session.new_tool_batch output) with
+--- injected handler tables AND/OR the phase-3 tool registry. Phase-3 W1 wires
+--- the registry: when no injected handler exists for a call name, the executor
+--- resolves the definition through `opts.registry` (make_handler), validates
+--- the decoded arguments against the registry schema (exact field-path errors,
+--- standard invalid-call result), and enforces the definition's timeout_ms for
+--- async completions via a deadline (sync handlers cannot be interrupted in
+--- the single-threaded runtime; documented limitation).
 ---
 --- Handler contract (injected, test/consumer-owned):
 ---   handlers[name] = {
 ---     run    = fn(args, ctx, task) -> result | task | nil,
 ---     cancel = fn() | nil,          -- best-effort task cancellation
 ---     mode   = "sync" | "async"     -- default "sync"
+---     schema = table|nil,           -- optional: when present, arguments are
+---                                   -- validated before execution (W1)
+---     timeout_ms = integer|nil,     -- optional: async deadline enforcement (W1)
+---     cancellable = boolean|nil,    -- default true: false disables cancel
 ---   }
 ---   * sync  mode: run returns the result content (string) directly; the call
 ---     completes immediately after run returns (pcall-guarded).
----   * async mode: run receives an executor-owned task identity
----       { id, owner={session_id,request_id,batch_id},
----         complete(result), cancel(), is_cancelled() }
+---   * async mode: run receives an executor-owned task identity (phase-3 W2:
+---     tools/task.lua layer)
+---       { id, owner={session_id,request_id,batch_id}, generation,
+---         complete(result[, caller]), cancel(reason[, caller]),
+---         is_cancelled([caller]), poll([caller]),
+---         retain(action, opts), expire(opts) }
 ---     and either returns it (identity) or completes it later through
 ---     task.complete. Completion is compare-and-set: once a call is terminal
----     (succeeded/failed/cancelled), a late complete() is ignored with no
----     mutation. run may also return a plain string for immediate completion.
+---     (succeeded/failed/cancelled), a late complete() is ignored with a
+---     recorded diagnostic and no mutation. `caller` (optional identity)
+---     enables the session/request/generation owner double check on every
+---     operation. run may also return a plain string for immediate completion.
 ---   ctx = { call_id, name, arguments (decoded), raw_arguments, ordinal,
 ---          session_id, request_id, batch_id, clock }
 ---
@@ -55,9 +68,23 @@
 ---   tool_batch.started / tool_batch.draining / tool_batch.finished /
 ---   tool_call.finished
 ---
+--- Phase-3 W2 additions:
+---   * Task identity carries `generation` (owning request generation) and the
+---     TTL(result) lifecycle (discard/defer/keep/persist + expire) governs the
+---     auxiliary result payload only: provider-facing result content and the
+---     persisted tool message are untouched (tool-runtime §Result and UI
+---     separation).
+---   * Every completed call result receives a default retention record
+---     (aux-payload policy, keep-for-session) attached AFTER persistence, so
+---     the TTL layer never changes the barrier / persistence order.
+---   * Task state is CAS-synced from every terminal path (task.complete, task
+---     cancel, timeout boundary, batch cancel) through tools.task.
+---
 --- It never loads codecompanion.* / mcphub.* / lua/util/hooks/*.
 
 local session_mod = require("maxa.runtime.session")
+local jschema = require("maxa.runtime.tools.schema")
+local task_mod = require("maxa.runtime.tools.task")
 
 local M = {}
 
@@ -136,6 +163,12 @@ Executor.__index = Executor
 ---   stack:        table, the orchestrator's message stack (results persisted
 ---                 into role="tool" messages here),
 ---   handlers?:    table, name -> handler record (see module header),
+---   registry?:    table|nil, phase-3 W1 tool registry (make_handler bridge;
+---                 nil keeps the legacy injected-handler-only behavior),
+---   provider_tool_ids?: table|nil, W1 wire-name -> registry-id map (built by
+---                 the orchestrator when the request tools were filled);
+---                 provider calls by the encoded wire name resolve back to the
+---                 registry id before registry resolution,
 ---   events?:      table|nil, event bus (default: no batch events emitted),
 ---   clock?:       table|nil, { now_ms } deterministic clock (diagnostic),
 ---   request?:     table|nil, owning request record (identity payloads),
@@ -153,6 +186,8 @@ function M.new_executor(opts)
     conversation = opts.conversation,
     stack = opts.stack,
     handlers = opts.handlers or {},
+    registry = opts.registry, -- phase-3 W1: registry bridge (nil = injected-only)
+    provider_tool_ids = opts.provider_tool_ids, -- W1: wire name -> registry id map
     events = opts.events,
     clock = opts.clock,
     request = opts.request, -- identity payload source (session_id/request_id/generation)
@@ -288,6 +323,7 @@ function Executor:run_all()
     })
   )
 
+  self:_check_timeouts()
   for _, call in ipairs(self.calls) do
     if self:is_terminal() then
       break -- cancelled between calls (defensive; sync execution cannot interleave)
@@ -298,6 +334,67 @@ function Executor:run_all()
   return { complete = self:is_terminal() }
 end
 
+--- Current wall clock (ms). Prefers the deterministic clock seam when present.
+---@return integer
+function Executor:_now_ms()
+  if self.clock and type(self.clock.now_ms) == "function" then
+    return self.clock.now_ms()
+  end
+  if vim.uv and vim.uv.hrtime then
+    return math.floor(vim.uv.hrtime() / 1e6)
+  end
+  return os.time() * 1000
+end
+
+--- Resolve the handler for a tool call: injected handlers win (test/consumer
+--- injection contract), then a W1 wire-name map entry (provider calls arrive
+--- by the encoded name, e.g. `fixture-echo-echo`; the map restores the
+--- registry id, so same-named tools stay unambiguous), otherwise the registry
+--- generates a handler from the registered definition (phase-3 W1 bridge).
+--- Returns nil for unknown tools.
+---@param name string tool name
+---@return table|nil handler
+function Executor:_resolve_handler(name)
+  local h = self.handlers and self.handlers[name]
+  if h and type(h.run) == "function" then
+    return h
+  end
+  local lookup = name
+  if self.provider_tool_ids and self.provider_tool_ids[name] then
+    lookup = self.provider_tool_ids[name]
+  end
+  if self.registry and type(self.registry.make_handler) == "function" then
+    return self.registry:make_handler(lookup)
+  end
+  return nil
+end
+
+--- Phase-3 W1: deadline enforcement for tool calls with a declared
+--- timeout_ms. A call whose deadline passed while still running is completed
+--- as a typed timeout result (cancel propagation best-effort) so a stalled
+--- async tool cannot hold the batch barrier forever. Runs on every completion
+--- and barrier boundary; a deadline can also be observed by a late
+--- task.complete, which produces the same typed timeout result.
+function Executor:_check_timeouts()
+  if self:is_terminal() then
+    return
+  end
+  for _, call in ipairs(self.calls) do
+    if call.state == M.CALL_STATES.running and call.deadline then
+      if self:_now_ms() >= call.deadline then
+        local h = self:_resolve_handler(call.name)
+        if h and h.cancel and h.cancellable ~= false then
+          pcall(h.cancel)
+        end
+        self:_complete_call(call, {
+          status = "error",
+          content = standard_error("timeout", ("%s timed out after %dms"):format(call.name, call.timeout_ms or 0)),
+        })
+      end
+    end
+  end
+end
+
 --- Execute one call: validate -> resolve handler -> run (sync/async).
 ---@param call table call record
 function Executor:_execute_call(call)
@@ -305,6 +402,7 @@ function Executor:_execute_call(call)
     return -- W8 belt: a cancelled/terminal call is never executed again
   end
   call.state = M.CALL_STATES.running
+  call.started_at = self:_now_ms()
 
   -- JSON argument validation (tool-runtime §Call lifecycle: validate before
   -- execution). Invalid calls produce a standard error result that still
@@ -316,12 +414,32 @@ function Executor:_execute_call(call)
       content = standard_error("invalid_args", ("%s: %s"):format(call.name, verr)),
     })
   end
-  local handler = self.handlers[call.name]
-  if not handler or type(handler.run) ~= "function" then
+  local handler = self:_resolve_handler(call.name)
+  if not handler then
     return self:_complete_call(call, {
       status = "error",
       content = standard_error("unknown_tool", ("unknown tool %q"):format(tostring(call.name))),
     })
+  end
+  -- Phase-3 W1: registry-supplied schemas validate arguments before execution.
+  -- A schema mismatch is a standard invalid-call result (still participates in
+  -- batch completion) with an exact field path (e.g. args.path.required).
+  if handler.schema ~= nil then
+    local okv2, verr2 = jschema.validate(handler.schema, decoded)
+    if not okv2 then
+      return self:_complete_call(call, {
+        status = "error",
+        content = standard_error("invalid_args", ("%s: schema mismatch at args.%s"):format(call.name, verr2)),
+      })
+    end
+  end
+  -- Phase-3 W1: timeout_ms from the definition (registry-generated handlers)
+  -- is enforced for async completions via a deadline; sync handlers cannot be
+  -- interrupted in the single-threaded runtime (documented limitation).
+  local timeout_ms = handler.timeout_ms
+  if type(timeout_ms) == "number" and timeout_ms > 0 then
+    call.timeout_ms = timeout_ms
+    call.deadline = self:_now_ms() + timeout_ms
   end
 
   local ctx = {
@@ -365,54 +483,82 @@ function Executor:_execute_call(call)
   self:_complete_call(call, { status = "success", content = tostring(ret or "") })
 end
 
---- Create the executor-owned async task identity for a call (owner-scoped).
---- Completion is compare-and-set: a terminal call (incl. cancellation) ignores
---- late complete()/cancel() with no mutation.
+--- Create the executor-owned async task identity for a call (owner-scoped;
+--- phase-3 W2: tools/task.lua layer — identity/owner/generation, CAS with
+--- diagnostics, owner validation). Completion is compare-and-set: a terminal
+--- call (incl. cancellation) ignores late complete()/cancel() and records a
+--- diagnostic on the task.
 ---@param call table call record
 ---@return table task
 function Executor:_make_task(call)
-  local task = {
+  local task = task_mod.create({
     id = ("task:%s:%d"):format(self.batch.id, call.ordinal),
     owner = {
       session_id = self.session_id,
       request_id = self.request_id,
       batch_id = self.batch.id,
     },
-  }
-  function task.complete(value)
-    if self:is_terminal() or call.state ~= M.CALL_STATES.running then
-      return false -- late completion after terminal/cancel: ignored (CAS)
-    end
-    local okn, norm = pcall(normalize_result, value)
-    if not okn then
-      self:_complete_call(call, {
-        status = "error",
-        content = standard_error("handler_error", ("%s returned an invalid result"):format(call.name)),
-      })
-    else
-      self:_complete_call(call, norm)
-    end
-    return true
-  end
-  function task.cancel()
-    if self:is_terminal() or TERMINAL_CALL_STATES[call.state] then
+    generation = self.generation,
+    clock = self.clock,
+    resolve = function(value)
+      -- Phase-3 W1: a completion arriving after the declared deadline is a
+      -- typed timeout result (the deadline is enforced on every boundary too).
+      if call.deadline and self:_now_ms() >= call.deadline then
+        return {
+          status = "error",
+          content = standard_error("timeout", ("%s timed out after %dms"):format(call.name, call.timeout_ms or 0)),
+        }
+      end
+      local okn, norm = pcall(normalize_result, value)
+      if not okn then
+        return {
+          status = "error",
+          content = standard_error("handler_error", ("%s returned an invalid result"):format(call.name)),
+        }
+      end
+      return norm
+    end,
+  })
+  -- Executor-side completion: the task CAS already decided; the call record is
+  -- mutated exactly once (result + persist + emit + barrier). A false CAS
+  -- result is a late/owner-rejected completion: ignored, diagnostic recorded.
+  local function complete_task(value, caller)
+    local ok, res = task_mod.complete(task, value, caller)
+    if not ok then
       return false
     end
-    local h = self.handlers[call.name]
-    if h and h.cancel then
+    self:_complete_call(call, { status = res.status, content = res.content })
+    return true
+  end
+  -- Keep the identity contract: handlers call task.complete(value[, caller]);
+  -- `caller` enables the owner double check for stale callbacks.
+  task.complete = complete_task
+  task.cancel = function(reason, caller)
+    local ok = task_mod.cancel(task, reason, caller)
+    if not ok then
+      return false
+    end
+    local h = self:_resolve_handler(call.name)
+    if h and h.cancel and h.cancellable ~= false then
       pcall(h.cancel)
     end
-    return self:_cancel_call(call, "task cancelled")
+    return self:_cancel_call(call, reason or "task cancelled")
   end
-  function task.is_cancelled()
-    return call.state == M.CALL_STATES.cancelled
+  task.is_cancelled = function(caller)
+    return task_mod.is_cancelled(task, caller)
+  end
+  task.poll = function(caller)
+    return task_mod.poll(task, caller)
   end
   return task
 end
 
 --- Terminal completion of a call (CAS): record result, persist the
---- provider-facing tool_result part, emit tool_call.finished, then check the
---- batch barrier. Late completions for a terminal call are ignored.
+--- provider-facing tool_result part, attach the default TTL retention
+--- metadata, emit tool_call.finished, then check the batch barrier. Late
+--- completions for a terminal call are ignored. When the completion did NOT
+--- originate from the task path (sync handlers, timeout boundary), the
+--- executor-owned task is CAS-synced so poll/is_cancelled stay coherent.
 ---@param call table call record
 ---@param result table { status="success"|"error", content=string }
 ---@return boolean changed true when this call performed the completion
@@ -421,6 +567,13 @@ function Executor:_complete_call(call, result)
     return false
   end
   local status = result.status == "error" and "error" or "success"
+  if call.task and not task_mod.is_terminal(call.task) then
+    task_mod._set_terminal(call.task, status, {
+      status = status,
+      content = tostring(result.content or ""),
+      is_error = status == "error",
+    }, "complete")
+  end
   call.state = status == "success" and M.CALL_STATES.succeeded or M.CALL_STATES.failed
   call.result = {
     call_id = call.call_id,
@@ -432,6 +585,7 @@ function Executor:_complete_call(call, result)
     state = call.state,
   }
   self:_persist_result(call)
+  self:_attach_retention(call)
   self:_emit(
     "tool_call_finished",
     vim.tbl_extend("force", self:_identity(), {
@@ -447,13 +601,22 @@ function Executor:_complete_call(call, result)
   return true
 end
 
---- Mark a call cancelled (CAS) + persist + emit (single-call cancellation path).
+--- Mark a call cancelled (CAS) + persist + emit (single-call cancellation
+--- path). The executor-owned task is CAS-synced so late success can never
+--- overwrite the cancellation (async-cancel-late-result).
 ---@param call table call record
 ---@param reason string
 ---@return boolean changed
 function Executor:_cancel_call(call, reason)
   if TERMINAL_CALL_STATES[call.state] then
     return false
+  end
+  if call.task and not task_mod.is_terminal(call.task) then
+    task_mod._set_terminal(call.task, "cancelled", {
+      status = "error",
+      content = standard_error("cancelled", reason or "tool call cancelled"),
+      is_error = true,
+    }, "cancel")
   end
   call.state = M.CALL_STATES.cancelled
   call.result = {
@@ -466,6 +629,7 @@ function Executor:_cancel_call(call, reason)
     state = M.CALL_STATES.cancelled,
   }
   self:_persist_result(call)
+  self:_attach_retention(call)
   self:_emit(
     "tool_call_finished",
     vim.tbl_extend("force", self:_identity(), {
@@ -477,7 +641,35 @@ function Executor:_cancel_call(call, reason)
       is_error = true,
     })
   )
+  -- Barrier: a single-call cancellation can leave every call terminal, so the
+  -- batch must transition exactly like _complete_call does (barrier opens once
+  -- when the last call becomes terminal).
+  self:_check_barrier()
   return true
+end
+
+--- Attach the default TTL retention metadata to a completed call result
+--- (phase-3 W2). Auxiliary-payload policy only: the provider-facing `content`
+--- and the persisted tool message are untouched (tool-runtime §Result and UI
+--- separation). Runs AFTER persistence, so the TTL layer never changes the
+--- barrier / persistence order. Default = keep-for-session; the explicit
+--- retain/expire APIs on tools.task can change it later without touching
+--- pairing/history data.
+---@param call table call record (call.result must be set)
+function Executor:_attach_retention(call)
+  local result = call.result
+  if not result or result.retention then
+    return
+  end
+  result.retention = task_mod.retention_meta(task_mod.TTL_ACTIONS.keep, {
+    owner = {
+      session_id = self.session_id,
+      request_id = self.request_id,
+      batch_id = self.batch.id,
+    },
+    set_at_ms = self:_now_ms(),
+    source = "default",
+  })
 end
 
 --- Persist one call result as a role="tool" message on the shared stack.
@@ -506,6 +698,7 @@ function Executor:_check_barrier()
   if self._barrier_done then
     return false
   end
+  self:_check_timeouts()
   if not self:all_calls_terminal() then
     return false
   end
@@ -584,11 +777,12 @@ function Executor:cancel(reason)
   end
   self._cancelled = true
 
-  -- Propagate cancellation to running handlers (best-effort).
+  -- Propagate cancellation to running handlers (best-effort; injected and
+  -- registry-resolved handlers both, unless the tool declares cancellable=false).
   for _, call in ipairs(self.calls) do
     if call.state == M.CALL_STATES.running then
-      local h = self.handlers[call.name]
-      if h and h.cancel then
+      local h = self:_resolve_handler(call.name)
+      if h and h.cancel and h.cancellable ~= false then
         pcall(h.cancel)
       end
     end

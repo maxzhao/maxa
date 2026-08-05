@@ -40,6 +40,18 @@ function M.load()
   return loaded
 end
 
+--- Real-path runtime assembly (phase-3 W1): tool registry + MCP servers +
+--- skill discovery/loading through the effective config, plus an idempotent
+--- teardown. See maxa/runtime/assemble.lua for the contract. The module is
+--- required lazily so loading the runtime entrypoint stays light.
+---@param cfg table effective configuration (mcp/skills sections)
+---@param opts? table assemble options (events/project_root/cwd/root overrides)
+---@return table assembly { tool_registry, mcp_registry, mcp_config, mcp_error,
+---   skills_state, errors, teardown }
+function M.assemble(cfg, opts)
+  return require("maxa.runtime.assemble").assemble(cfg, opts)
+end
+
 -- Load skeleton eagerly when required as the runtime entrypoint.
 M._modules_loaded = M.load()
 

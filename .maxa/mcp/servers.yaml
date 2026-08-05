@@ -1,0 +1,13 @@
+# maxa 外部 MCP 服务器声明（开发母仓库人工检验配置）。
+# 目标项目使用相对写法：args 中 `${PROJECT_ROOT}` 会自动替换为项目根。
+# 本文件指向本仓库内置的本地 stdio fixture 服务器（node，无网络依赖）。
+schema_version: 1
+servers:
+  fixture-echo:
+    enabled: true
+    transport: stdio
+    command: node
+    args: ["${PROJECT_ROOT}/tests/mcp/fixtures/stdio_server.mjs"]
+    cwd: ${PROJECT_ROOT}
+    request_timeout_ms: 10000
+    startup_timeout_ms: 10000

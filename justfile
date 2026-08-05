@@ -67,6 +67,30 @@ test-config: (setup)
 # Offline; no network or key. Exit 0 on success; 1 (cq) on any failure.
 test-state: (setup)
     NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/state/runner.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+# Headless phase-3 W1 tool-registry fixture runner (tests/tools): registry
+# register/resolve/hash semantics, executor sync/async tasks, schema argument
+# validation, result durability + display projection, parallel barrier, and the
+# W7 tool-fold display projection. Offline; no network or key.
+test-tools: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/tools/runner.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+# Headless phase-3 W3 MCP fixture runner (tests/mcp): servers.yaml config
+# validation, external stdio lifecycle (spawn/initialize/tools/list/tools/call),
+# server registry, native servers, reload/restart/stop/timeout behavior.
+# Offline; no network or key (fake processes only).
+test-mcp: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/mcp/runner.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+# Headless phase-3 W5/W6 skills fixture runner (tests/skills): three-root
+# discovery + shadowing, dependency-topological loader, hook parser/registry/
+# fire/injector machinery. Offline; no network or key.
+test-skills: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/skills/runner.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+# Headless phase-3 W8 gate end-to-end (tests/p3-gate): real node stdio MCP
+# fixture server discovery -> registration -> tools/call JSON-RPC round trip,
+# plus demo skill tool registration, through ONE host submit (two tool calls:
+# external MCP + skill tool; barrier exactly once; one automatic continuation).
+# Local node process only; no network or key.
+test-gate: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/p3-gate/gate.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
 
 # Headless chat-ui-render validation (phase 1.5 subpackage 3.1): markdown treesitter
 # attach, header/separator extmarks, message structure, incremental append (no rewrite

@@ -64,10 +64,26 @@ M.defaults = {
   },
   --- 编排器默认（阶段 2 已消费；未在此声明的内部默认值保留在 orchestrator 模块）。
   orchestrator = {},
-  --- 扩展类内容开关（阶段 3 消费）：项目 MCP/skill 内容文件约定见
-  --- `.maxa/mcp/servers.yaml` 与 `.maxa/skills/`（mcp-skill-runtime spec）。
-  skills = {},
-  mcp = {},
+  --- Skill 子系统（阶段 3/W7 消费；mcp-skill-runtime spec）：
+  ---   * enabled：总开关；false 时运行时装配不做任何 Skill 发现/注册。
+  ---   * roots：发现根开关，与 skills.discover 的三类根一一对应 ——
+  ---     bundled（rtp `skills/`，如本仓库自带 bundled 技能）、config
+  ---     （`stdpath("config")/skills` 用户级全局）、project
+  ---     （项目 `.maxa/skills/`，优先级最高）。任一为 false 则装配时
+  ---     跳过对应根（默认全开）。
+  skills = {
+    enabled = true,
+    roots = { bundled = true, config = true, project = true },
+  },
+  --- MCP 子系统（阶段 3/W7 消费；mcp-skill-runtime spec）：
+  ---   * enabled：总开关；false 时运行时装配不加载服务器配置。
+  ---   * servers_file：项目相对路径的 MCP 服务器声明文件（默认
+  ---     `.maxa/mcp/servers.yaml`；缺文件 = 空配置非错误；`${PROJECT_ROOT}`
+  ---     与 `${ENV_VAR}` 替换由 mcp.config.load 处理）。`.supermax/` 永不作为来源。
+  mcp = {
+    enabled = true,
+    servers_file = ".maxa/mcp/servers.yaml",
+  },
   status = {},
   --- Leader-prefixed command mapping surfaced by lazy `keys`（见 lua/plugins/maxa.lua）。
   keymaps = {
@@ -106,6 +122,34 @@ end
 --- (same pattern as lua/plugins/maxa.lua; no hard-coded absolute path).
 local src = debug.getinfo(1, "S") and debug.getinfo(1, "S").source or ""
 local M_ROOT = src:match("^@(.+)/lua/maxa/init%.lua$") or vim.fn.getcwd()
+--- W7/W1 extension-content assembly: real-path runtime assembly through
+--- `maxa.runtime.assemble` — a shared tool registry, the project
+--- `.maxa/mcp/servers.yaml` (respecting `mcp.enabled` / `mcp.servers_file`),
+--- and skill discovery/loading (respecting `skills.enabled` / `skills.roots`).
+--- Missing servers file = empty configuration, NEVER an error; `.supermax/` is
+--- never consulted as a source. A structural servers-file violation is a
+--- fail-closed typed error recorded on `M.assembly.mcp_error` (setup continues
+--- so the Chat host stays usable; the error is observable by consumers, e.g. a
+--- status projection). The assembly record is extended with
+--- `tool_registry` / `mcp_registry` / `skills_state` / `teardown`.
+---@param config_mod table maxa.runtime.config
+local function assemble_extensions(config_mod)
+  local cfg = M.config
+  local asm = require("maxa.runtime").assemble(cfg, {})
+  M.assembly = {
+    skills = {
+      enabled = not (cfg.skills and cfg.skills.enabled == false),
+      roots = (cfg.skills and cfg.skills.roots) or {},
+    },
+    tool_registry = asm.tool_registry,
+    mcp = asm.mcp_config, -- loaded servers config (existing shape; empty config when missing file)
+    mcp_registry = asm.mcp_registry, -- additive: live mcp server registry
+    mcp_error = asm.mcp_error,
+    skills_state = asm.skills_state,
+    errors = asm.errors,
+    teardown = asm.teardown,
+  }
+end
 --- Setup/entry point. Merges `opts` over internal defaults (LazyVim rules),
 --- validates fail-closed, then assembles the runtime and the Neovim host
 --- (host view defaults follow the effective config).
@@ -122,6 +166,8 @@ function M.setup(opts)
   inject_dev_env(M_ROOT)
   -- Assembly: load runtime + host, and propagate resolved defaults into the host view.
   require("maxa.runtime")
+  -- W7: project extension content (`.maxa/mcp/servers.yaml` + skill switches).
+  assemble_extensions(config)
   local host = require("maxa.runtime.host.nvim")
   local ui = M.config.ui or {}
   host.set_defaults({
@@ -129,6 +175,9 @@ function M.setup(opts)
     model = M.config.model,
     show_reasoning = ui.show_reasoning,
     layout = ui.layout,
+    -- W1: the assembled tool registry becomes the host default so default
+    -- views (e.g. `:MaxaChat` -> `_get_default`) see MCP/skill tools.
+    tool_registry = M.assembly.tool_registry,
   })
   return M.config
 end
