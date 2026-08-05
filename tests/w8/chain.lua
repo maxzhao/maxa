@@ -207,15 +207,19 @@ do
   local events = require("maxa.runtime.events")
   local host = require("maxa.runtime.host.nvim")
 
-  -- Default view: collapsed reasoning summary.
+  -- Default view: full reasoning rendered; folding is a buffer-level
+  -- interaction (asserted in tests/ui/render.lua E), so the snapshot keeps
+  -- the `### Reasoning` / `### Response` block and the tool status line uses
+  -- the chat-ui-folds status icon.
   local bus = events.new()
   local v = host.new({ provider = "mock", events = bus, provider_params = { chunks = parts_chunks() } })
   local res = v:submit("use the tool")
   assert_eq(res.terminal_state, "completed", "D: default view submit")
   local lines = v:_build_lines()
-  check(has_line(lines, "[reasoning 6 chars]"), "D: collapsed reasoning summary line")
-  check(not has_line(lines, "think"), "D: collapsed view hides reasoning content")
-  check(has_line(lines, "[tool read_file] (completed)"), "D: tool_call status line")
+  check(has_line(lines, "### Reasoning"), "D: reasoning header rendered by default")
+  check(has_line(lines, "think"), "D: reasoning content rendered by default")
+  check(has_line(lines, "### Response"), "D: response header closes the fold")
+  check(has_line(lines, "✅ read_file"), "D: tool_call status line with icon")
   check(has_line(lines, "status: completed (in=10 out=20 total=30)"), "D: normalized usage status line")
 
   -- show_reasoning=true view: full reasoning content.
@@ -224,7 +228,8 @@ do
   local res2 = v2:submit("use the tool")
   assert_eq(res2.terminal_state, "completed", "D: show_reasoning submit")
   local lines2 = v2:_build_lines()
-  check(has_line(lines2, "[reasoning]"), "D: reasoning header line")
+  check(has_line(lines2, "### Reasoning"), "D: reasoning transition header")
+  check(has_line(lines2, "### Response"), "D: response transition header")
   check(has_line(lines2, "think"), "D: reasoning content visible when show_reasoning")
 end
 

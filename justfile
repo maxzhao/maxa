@@ -60,6 +60,36 @@ test-protocol-unit: (setup)
 test-config: (setup)
     NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/config/verify.lua' local ok,res=pcall(dofile,d) if not (ok and res) then vim.cmd('cq') return end vim.cmd('qa!') end, 2000)"
 
+# Headless chat-ui-render validation (phase 1.5 subpackage 3.1): markdown treesitter
+# attach, header/separator extmarks, message structure, incremental append (no rewrite
+# jitter), follow-to-bottom, streaming virtual-text cursor, re-render equivalence.
+test-ui: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/ui/render.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
+# Headless chat-ui-input validation (phase 1.5 subpackage 3.3): intro placeholder
+# virtual text, session input history + <Up>/<Down> recall, visual selection attach
+# as fenced code block. Offline; no network or key.
+test-ui-input: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/ui/input.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
+# Headless chat-ui-actions validation (phase 1.5 subpackage 3.4): keymap registry
+# presence, ]] / [[ header navigation, provider picker candidates, keymap help
+# float. Offline; no network or key.
+test-ui-actions: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/ui/actions.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
+# Headless chat-ui-status validation (phase 1.5 subpackage 3.5): read-only status
+# projection lifecycle (idle/busy spinner/completed usage), spinner determinism,
+# lualine component projection. Offline; no network or key.
+test-ui-status: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/ui/status.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
+# Headless chat-ui config wiring validation (phase 1.5 subpackage 3.6): default
+# setup safety + ui.show_reasoning flow from a temp .maxa/runtime.yaml into host
+# view defaults. Offline; no network or key.
+test-ui-config: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/ui/config.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
 # stylua check
 lint:
     stylua --check lua/maxa

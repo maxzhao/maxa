@@ -100,15 +100,72 @@ tags: [supermax, plan, implementation, nvim-runtime]
 - [x] import-guard 确认：protocol 测试不加载 codecompanion/mcphub
 
 **本层 gate**：至少真实串通一个 provider 完整往返；四协议 fixture 组（P-*）在你配置可用范围内通过。
+**人工可审核条款（2026-08-04 补充）**：用户必须能**通过使用 maxa 本身**（`:MaxaChat` 内切换
+provider 并对话）体验并确认真实 provider 能力（流式回复、reasoning 折叠、归一 usage 状态行），
+headless 脚本验证不算人工可审核。此条款为阶段1 gate 必要条件。
 
-> **阶段1 gate 声明（2026-08-04）**：✅ 通过。
-> 证据：`just test-protocol` → `PROTOCOL_RUNNER_OK fixtures=41`（38 手工 + 3 真实录制 live-stream）；
-> `just test-protocol-unit` → SSE 16 + TRANSPORT 67；`tests/protocol/live.lua` → `LIVE_OK`
-> （openai_chat/openai_responses/anthropic_messages 三协议真实 deepseek **非流 + 流式**完整往返，
-> 事件/usage 归一齐全，含 anthropic reasoning_delta）；`tests/config/verify.lua` → 72/72；
-> `tests/w8/chain.lua` → OK；`just smoke/lint/check` 全绿。gemini 仅本地 fixture（真实配置不可用范围内）。
-> 流式根因修复：plenary.job 按行分割交付 stdout（无换行），transport 流式路径补回 `"\n"`。
-> 细节见 `.supermax/drafts/phase1-implementation-plan.md` §0。
+> **阶段1 gate 声明（2026-08-04，已撤回）**：❌ 撤回。
+> 撤回原因：运行时/协议层验证全部通过（fixtures=41、LIVE_OK、config 72/72、w8 OK），
+> 但 **host UI 未接线真实 provider**——`:MaxaProvider` 只认识 mock/echo（`protocol.get` 协议名注册表），
+> 用户无法在 UI 中体验真实三协议，不满足"人工可审核条款"，故 gate 判定为**未通过**。
+> （技术证据保留：流式根因修复 = plenary.job 行分割交付 stdout，transport 流式路径补回 `"\n"`。）
+
+> **阶段1 gate 重新声明（2026-08-05）**：✅ 通过。
+> W10 补做完成（`.supermax/drafts/phase1-implementation-plan.md` §W10）：host `View:set_provider`
+> 支持 config provider id（deepseek-chat/deepseek-responses/deepseek-anthropic）并经
+> `config.resolve_provider` + adapter 绑定 + params 构造接入 orchestrator；runtime 装配层注入
+> `.env` key；`:MaxaProvider` 五 provider 可用；openai_responses 补 `reasoning_text.delta` →
+> reasoning_delta（真实流 4→27 事件，fixture 同步）。验证（主会话复跑）：`W10_UI_CHAIN_OK`
+> （tests/w10/ui_chain.lua：三真实 provider 走 View 全链路，text part/usage/reasoning 折叠行/
+> 终态一次/real adapter 绑定/mock 取消/import-guard）；test-protocol 41、test-protocol-unit 83、
+> live LIVE_OK、config 72/72、w8 chain、smoke/lint/check 全绿。
+>
+> **人工实测步骤（用户按此在 UI 中复核确认）**：
+> 1. `cd ~/maxa && just run`（或 `NVIM_APPNAME=nvim-maxa nvim`）
+> 2. `:MaxaChat` 打开；`:MaxaProvider deepseek-chat` → header 显示 `provider=deepseek-chat model=deepseek-v4-flash`
+> 3. 输入"Reply with exactly: OK"回车 → 真实流式回复逐字出现；状态行 busy → completed；回复区出现 `[reasoning N chars]` 折叠行与归一 usage（input/output/cached/reason tokens）
+> 4. `:MaxaStop` 在回复中途触发一次 → `status: cancelled`（可选）
+> 5. 重复步骤 2-3：`:MaxaProvider deepseek-responses`、`:MaxaProvider deepseek-anthropic` 各对话一条，确认均真实流式回复 + reasoning 折叠 + usage
+> 6. `:MaxaProvider mock` 切回 → 无 key 也能用的本地闭环仍在；`:MaxaClose` 关闭
+> 7. 全部符合预期 → 人工审核通过，阶段1 gate 成立
+
+---
+
+## 阶段 1.5 — Chat UI 现代化（人工可审核观感，自阶段5 提前）
+
+> 触发：2026-08-05 用户实测审核认为 Chat 界面与 CodeCompanion 相差太远（当前为阶段0
+> 最小骨架）。差距清单：`.supermax/drafts/chat-ui-gap-analysis.md`（子代理探索产出，7 维度，
+> 每项含 v18.7.0 源码证据 + maxa 现状 + 依赖分层 + 优先级）。本阶段把原阶段5 "Chat 视图完善"
+> 中 **L0（不依赖底层）** 的部分提前；L3/L4 部分保留在原阶段。目标契约对齐
+> `.supermax/specs/modules/chat-ui/spec.md`（status: partial，typed collapsible blocks /
+> 增量 append / 布局 / lualine·spinner 渲染分离 / fixtures 规范）。
+
+### 实现
+- [x] 渲染层（chat-ui-render）——2026-08-05 完成：treesitter markdown 高亮 + header/分隔线 extmark + 消息结构（角色头/双空行/### Reasoning·Response）+ 增量 append + 自动滚动 + virtual text 占位（host/nvim/render.lua）：markdown treesitter 高亮 + header/分隔线 extmark（对照
+  `ui/init.lua:512-539`、`chat/init.lua:465-473`）；消息结构（角色头/双空行间距，对照
+  `builder.lua:232-243`）；流式**增量 append**（`nvim_buf_set_text` 末行追加）+ 自动滚动
+  （`follow()` 语义）+ virtual text 占位——替换当前全量重写（`host/nvim` `_build_lines`）
+- [x] 折叠交互（chat-ui-folds）——2026-08-05 完成：reasoning 真实 fold（foldexpr/foldtext/zo·zc）+ tool 行图标/状态色 + 稳定 ID；工具输出折叠待工具输出数据（阶段3 前置）：reasoning 真实 Neovim fold（foldtext + zo/zc，对照
+  `folds.lua:253-317`）；tool 行图标与状态色（⏳/⚡/❌/✅，对照 `formatters/tools.lua` +
+  `ui/icons.lua`）+ 工具输出折叠；**工具结果详情卡片待阶段3**（依赖真实工具运行时）
+- [x] 输入层（chat-ui-input）——2026-08-05 完成：**一体式输入区**（对齐 CodeCompanion：无独立输入窗，chat buffer 尾部输入头+可编辑用户区；render_end 渲染边界 + render.apply 渲染区 diff；intro/visual 注入/输入历史/multiline 全适配单 buffer；多行输入 float 自适应增高）：输入区观感（intro virtual text / 占位 / 自动进入 insert，
+  对照 `ui/init.lua:181-190,544-561`）；visual 选区注入 fenced codeblock（对照
+  `ui/init.lua:491-499`）；输入历史导航；multiline 不受 3 行限制
+- [x] 操作面（chat-ui-actions）——2026-08-05 完成：keymap 注册表 M.KEYMAPS（send/stop/close/clear/]]·[[/帮助/ga，替代裸 Ex 入口，命令保留兼容）+ provider/model 交互选择器（无参命令触发；M.ROOT resolve 修复）+ `:MaxaDemo` 演示会话（mock 注入 reasoning+tool_call+usage，离线验收折叠/图标/状态行；修复 lazy cmd 占位与 setup guard 交互）：keymap 注册表（send/stop/close/clear/provider/model/
+  regenerate…，替代裸 Ex 命令入口）；provider/model 交互选择器（对照 `ga` 交互，适配
+  W10.2 真实 provider 解析）
+- [x] 状态层（chat-ui-status）——2026-08-05 完成：host/nvim/status.lua lualine/spinner/usage 只读投影（View:projection，渲染分离契约）：lualine + spinner + usage 投影（只读 spine，事件驱动；
+  对齐 chat-ui spec 渲染分离契约）
+- [x] config：maxa setup 接线 .maxa/runtime.yaml ui.show_reasoning + ui.layout → host 默认（layout 默认 vertical=右侧半屏分屏，horizontal=底部/float=半宽浮窗可配；headless 断言）
+
+### 伴随验证
+- [x] headless 渲染断言（2026-08-05 主会话复跑全绿）：tests/ui/render.lua（markdown extmark/增量 append/follow/virtual text/fold 交互）+ input.lua（intro/历史/visual 注入）+ actions.lua（keymap/导航/选择器/帮助）+ status.lua（投影/spinner/lualine）+ config.lua（ui 接线）
+- [ ] 人工验收锚点（待用户 UI 实测确认）：对照 `chat-ui-modernization-plan.md` §5 清单
+  （P0 九项：markdown 高亮/消息结构/流式观感/reasoning 折叠/工具行图标/操作 keymap/输入区
+  观感/输入历史·选区/provider 选择器）
+- [x] 回归（2026-08-05 主会话复跑）：tests/w8/chain.lua、tests/w10/ui_chain.lua、just smoke/lint/check、test-protocol(41)、test-protocol-unit(16+67)、test-config(72) 全绿；import-guard 无违禁
+
+**本层 gate**：P0 差距点全部在 UI 中人工可审核（用户对照清单实测确认）；既有验证全绿。
 
 ---
 
@@ -150,6 +207,8 @@ tags: [supermax, plan, implementation, nvim-runtime]
 ### 伴随验证
 - [ ] 工具行（T-*）：invalid-json、missing-required-field、automatic-sync-success、automatic-failure、
   async-success/cancel-late、parallel-barrier、display-projection、ttl-result
+  （注：display-projection 中图标/折叠/状态色 L0 部分在阶段1.5 chat-ui-folds 落地；本条验证
+  完整结果详情投影，依赖本阶段真实工具运行时）
 - [ ] MCP 行（T-006/007 + mcp/*）：config-valid/invalid、external-start-ready/fail、request-timeout、stop、
   restart-concurrent、config-reload、native-register/duplicate/enable-disable
 - [ ] Skill 行（T-008/009/010 + skill/*）：project-overrides-global、dependency-order、startup/on-load/cascade、
@@ -188,7 +247,7 @@ tags: [supermax, plan, implementation, nvim-runtime]
 ### 实现
 - [ ] 事件总线完善：sequence/idempotency、transactional reducer、isolated observer、event_id 重放无副作用
 - [ ] 不可变 spine reducer + 可选 billing/quota 投影（失败不影响 Chat）
-- [ ] Chat 视图完善：attach/hide/reattach/close、snapshot 渲染、input revision、context/attachment 选择、安全切 provider/model
+- [ ] Chat 视图完善：attach/hide/reattach/close、snapshot 渲染、input revision 完整化、context/attachment 选择、安全切 provider/model（注：渲染/折叠/输入/操作/状态中 L0 部分已提前至阶段1.5，本条为剩余收口项）
 - [ ] lualine + spinner 投影（只读 spine，不查 CodeCompanion 内部）
 - [ ] Action/Command registry + palette/keymap + 内置操作族（history/compact/stop/provider/rewind/fork/health…）
 - [ ] 可选消费者移植（翻译/Telegram/状态面板）；TaskBrowser 作为外部 spine consumer 保持独立

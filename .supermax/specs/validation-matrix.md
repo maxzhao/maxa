@@ -53,6 +53,9 @@ Define executable fixtures required before the target runtime can replace CodeCo
 | R-STATE-008 | Chat close / Neovim exit | owned async tasks cancelled; timers/handles closed; cleanup idempotent | async hook evidence |
 | R-STATE-009 | restored AgentLoop | state reconstructed; orphan tool call repaired; no duplicate user trace | source-only gap |
 | R-STATE-010 | duplicate terminal callbacks | exactly one terminal event/trace/status transition | partial trace tests |
+| R-CHATUI-001 | streaming incremental render | N deltas append-only (no rewrite jitter), re-render equivalence | tests/ui/render.lua B/A: UI_RENDER_OK |
+| R-CHATUI-002 | typed collapsible reasoning block | real fold closed by default, foldtext summary, zo/zc interactive | tests/ui/render.lua E: UI_RENDER_OK |
+| R-CHATUI-003 | status/input/actions projection | busy spinner + usage projection; input history recall; visual attach; keymap registry | tests/ui/status.lua+input.lua+actions.lua: UI_STATUS_OK/UI_INPUT_OK/UI_ACTIONS_OK |
 
 ## Tool/MCP/Skill fixtures
 
