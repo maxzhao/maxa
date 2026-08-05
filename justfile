@@ -60,6 +60,13 @@ test-protocol-unit: (setup)
 test-config: (setup)
     NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/config/verify.lua' local ok,res=pcall(dofile,d) if not (ok and res) then vim.cmd('cq') return end vim.cmd('qa!') end, 2000)"
 
+# Headless phase-2 R-STATE fixture runner (W2 test base): discovers and runs
+# every fixture under tests/state/ (entities + clock determinism), asserts the
+# import guard, and drives all timestamps through the deterministic fake clock.
+# Offline; no network or key. Exit 0 on success; 1 (cq) on any failure.
+test-state: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/state/runner.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
 # Headless chat-ui-render validation (phase 1.5 subpackage 3.1): markdown treesitter
 # attach, header/separator extmarks, message structure, incremental append (no rewrite
 # jitter), follow-to-bottom, streaming virtual-text cursor, re-render equivalence.

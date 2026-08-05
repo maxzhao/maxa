@@ -135,6 +135,7 @@ M.runtime_schema = {
             base_url = { type = "string", optional = false, validate = nonempty_string },
             api_key_env = { type = "string", optional = true, validate = env_name },
             model = { type = "string", optional = false, validate = nonempty_string },
+            context_window = { type = "integer", optional = true, validate = positive_int },
             capabilities = {
               type = "struct",
               optional = true,
@@ -794,6 +795,9 @@ function M.resolve_provider(config, id)
     -- Resolved at call time; never persisted, never part of the snapshot.
     api_key = def.api_key_env and os.getenv(def.api_key_env) or nil,
     model = def.model,
+    -- Optional provider context window (tokens). nil when undeclared: the
+    -- orchestrator default usage provider falls back to DEFAULT_CONTEXT_WINDOW.
+    context_window = def.context_window,
     capabilities = capabilities,
     request = request,
     adapter = nil,

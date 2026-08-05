@@ -221,7 +221,10 @@ do
   check(ft and ft:match("^%[reasoning %d+ chars%]$") ~= nil, "F: foldtext summary (got " .. tostring(ft) .. ")")
   local joined = table.concat(lines, "\n")
   check(joined:find("✅ read_file", 1, true) ~= nil, "F: demo tool line with completed icon")
-  check(joined:find("in=120", 1, true) ~= nil, "F: demo usage projected")
+  -- W4: the demo tool call executes (read_file has no injected handler ->
+  -- standard error result) and the direct pass-through continuation (default
+  -- echo body) replaces the displayed usage with its local estimate (out=8).
+  check(joined:find("status: completed (out=8)", 1, true) ~= nil, "F: demo usage projected (continuation local estimate)")
   v:close()
 end
 
@@ -253,6 +256,30 @@ do
   assert_eq(host._edge_border(nil), "rounded", "H: unknown position falls back to rounded")
 end
 
+--------------------------------------------------------------------------------
+-- I. MaxaContextStop command: registration + module operation safety
+--------------------------------------------------------------------------------
+do
+  check(vim.fn.exists(":MaxaContextStop") == 2, "I: MaxaContextStop command registered")
+  -- Without a default view: safe typed no-op (WARN notify), no crash.
+  local before = host._default
+  host._default = nil
+  local ok_nil = host.context_stop("70")
+  check(ok_nil == false, "I: context_stop without view returns false")
+  -- With a default view: "off" disarms through the orchestrator.
+  local v3 = host.new({ provider = "mock", events = events.new() })
+  host._default = v3
+  local armed = v3.orch:context_stop_arm("70")
+  check(armed == true, "I: arm through orchestrator before command")
+  local ok_off = host.context_stop("off")
+  check(ok_off == true, "I: context_stop off disarms")
+  check(v3.orch._context_stop.enabled == false, "I: disarmed state confirmed")
+  -- No-arg usage hint is a safe false (info notify).
+  local ok_empty = host.context_stop("")
+  check(ok_empty == false, "I: empty args returns false with usage hint")
+  host._default = before
+  v3:close()
+end
 --------------------------------------------------------------------------------
 -- E. Terminal import-guard assert (nothing legacy loaded)
 --------------------------------------------------------------------------------

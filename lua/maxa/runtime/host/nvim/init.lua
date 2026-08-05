@@ -6,7 +6,13 @@
 --- `session` + `orchestrator` + `protocol` + `events` modules. It supports:
 ---
 ---   `:MaxaChat`   open (or focus) the Chat window pair
----   :MaxaStop     cancel the in-flight provider stream (soft-stop, terminal once)
+---   :MaxaStop     cancel the in-flight provider stream/tool batch (hard cancel;
+---                 terminal cancelled, no continuation marker — old semantics kept)
+---   :MaxaSoftStop drain the current response/tool batch, then suppress
+---                 automatic continuation (never cancels the provider/tools)
+---   :MaxaContextStop <percent|+N|off>  arm one-shot context-limit stop:
+---                 at the target usage ratio request a soft stop (busy) or
+---                 block the next automatic submit (idle); "off" disarms
 ---   :MaxaClose    close the Chat window pair + destroy the session
 ---   :MaxaProvider switch provider (default "mock"): mock | echo | deepseek-chat |
 ---                 deepseek-responses | deepseek-anthropic (W10: real providers
@@ -85,11 +91,13 @@ M.KEYMAPS = {
   { buf = "chat", mode = "i", keys = "<CR>", desc = "submit chat input", fn = "_submit_from_input" },
   { buf = "chat", mode = "n", keys = "<CR>", desc = "submit chat input", fn = "_submit_from_input" },
   { buf = "chat", mode = "i", keys = "<C-c>", desc = "cancel in-flight stream", fn = "stop" },
+  { buf = "chat", mode = "i", keys = "<C-s>", desc = "soft-stop after current response/tools", fn = "soft_stop" },
   { buf = "chat", mode = "i", keys = "<C-g>", desc = "show keymap help", fn = "_show_keymap_help" },
   { buf = "chat", mode = "i", keys = "<Up>", desc = "recall older input", fn = "_history_nav", args = { -1 } },
   { buf = "chat", mode = "i", keys = "<Down>", desc = "recall newer input", fn = "_history_nav", args = { 1 } },
   { buf = "chat", mode = "v", keys = "ga", desc = "attach visual selection to input", fn = "_attach_selection" },
   { buf = "chat", mode = "n", keys = "q", desc = "stop in-flight stream", fn = "stop" },
+  { buf = "chat", mode = "n", keys = "gs", desc = "soft-stop after current response/tools", fn = "soft_stop" },
   { buf = "chat", mode = "n", keys = "<C-c>", desc = "close chat view", fn = "close" },
   { buf = "chat", mode = "n", keys = "gx", desc = "clear chat messages", fn = "clear" },
   { buf = "chat", mode = "n", keys = "]]", desc = "next message header", fn = "_goto_header", args = { 1 } },
@@ -165,6 +173,7 @@ M.UI = {
   status_completed = "status: completed",
   status_failed = "status: failed",
   status_cancelled = "status: cancelled",
+  status_soft_stop = "status: soft-stop requested",
   closed = "session closed",
 }
 
@@ -210,6 +219,27 @@ end
 local View = {}
 View.__index = View
 
+-- W8: registry of live view instances (for best-effort nvim-exit teardown).
+-- Views register in M.new and unregister on close()/shutdown(); M.shutdown()
+-- iterates the registry so every owned orchestrator/handle is closed at exit.
+M._views = {}
+
+-- W8: VimLeavePre hook registration is lazy (first view creation) so requiring
+-- the host module headless has no autocmd side effects.
+local _exit_hook_registered = false
+local function ensure_exit_hook()
+  if _exit_hook_registered then
+    return
+  end
+  _exit_hook_registered = true
+  pcall(vim.api.nvim_create_autocmd, "VimLeavePre", {
+    callback = function()
+      M.shutdown()
+    end,
+    desc = "maxa: best-effort runtime shutdown (cancel owned handles)",
+  })
+end
+
 --- Create a Chat view. UI is lazy: the window pair is only created by `open()`.
 ---@param opts? table {
 ---   provider?:    string provider name (default "mock"),
@@ -243,6 +273,8 @@ function M.new(opts)
     items = {}, -- ordered message model { role=string, text=string,
     --             reasoning=string, tool_calls=table[] }
     status = "idle", -- idle | busy | completed | failed | cancelled | closed
+    soft_stop = false, -- W6: soft stop requested (manual or context-stop); the
+    -- status projection shows "soft-stop requested" once the drain boundary lands
     usage = nil, -- latest/final normalized usage (W8: schema.usage snapshot)
     show_reasoning = (opts.show_reasoning == nil) and M.DEFAULT_SHOW_REASONING or not not opts.show_reasoning,
     layout = opts.layout or M.DEFAULT_LAYOUT,
@@ -274,9 +306,14 @@ function M.new(opts)
     _follow = true,
     _bound_buf = nil,
     _ts_attached = false,
+    -- W8: session View entity bound at open() (attached to the chat buffer);
+    -- detach() releases it without touching the session/request.
+    _session_view = nil,
   }, View)
 
   self:_subscribe()
+  ensure_exit_hook()
+  M._views[#M._views + 1] = self
   if opts.auto_open then
     self:open()
   end
@@ -297,6 +334,46 @@ end
 ---@private
 function View:_is_closed_view()
   return self.status == "closed"
+end
+
+---@private Ensure the session View entity exists for the current chat buffer
+--- (W8 async-lifecycle view ownership). Created at open() with the real buffer
+--- number; headless consumers (tests) may attach a synthetic bufnr. A detached
+--- or closed previous entity gets a FRESH identity on the next open (views are
+--- per-attachment; the session keeps the old record for audit).
+---@param bufnr integer|nil chat buffer number
+---@return table|nil view entity
+function View:_attach_session_view(bufnr)
+  local cur = self._session_view
+  if cur and (cur.state == "attached" or cur.state == "hidden") then
+    return cur
+  end
+  local v, err = self.orch.session:new_view({ bufnr = bufnr })
+  if not v then
+    self.errors[#self.errors + 1] = err
+    return nil
+  end
+  self._session_view = v
+  return v
+end
+
+--- Detach the view from the session (W8 view-delete): the buffer/window is
+--- gone, the session View entity moves to detached, and ALL UI references are
+--- dropped. The session and any in-flight request CONTINUE unaffected — later
+--- renders become inert (no valid buffer) and projections stay pure state.
+--- Idempotent: repeated detach (buffer delete + layout close) is a no-op.
+---@param reason? string diagnostic reason (default "buffer/window deleted")
+---@return boolean changed true when this call performed the detach
+function View:detach(reason)
+  if self:_is_closed_view() then
+    return false
+  end
+  local changed = false
+  if self._session_view then
+    changed = self.orch.session:detach_view(self._session_view, reason) or changed
+  end
+  self:_reset_ui_refs()
+  return changed
 end
 
 ---@private Register streaming / session events. Unsubscribes are retained for close().
@@ -336,9 +413,23 @@ function View:_subscribe()
   sub(self.events.events.usage_updated or "usage.updated", function(payload)
     self:_on_usage_updated(payload)
   end)
+  -- W6 soft-stop request state (manual request / toggle-off / context-stop
+  -- trigger). Mirrors the orchestrator flag so the status projection shows
+  -- "soft-stop requested" while the current response/tool batch drains.
+  sub(self.events.events.soft_stop_requested or "chat.soft_stop_requested", function(payload)
+    self.soft_stop = not not (payload and payload.requested)
+    self:_render()
+  end)
+  -- W6 soft-stop completion boundary: the drain consumed the request; the
+  -- session landed at waiting_for_user (or stopped/closed). Clear the flag.
+  sub(self.events.events.soft_stop_completed or "chat.soft_stop_completed", function()
+    self.soft_stop = false
+    self:_render()
+  end)
   -- Terminal success.
   sub(self.events.events.response_completed or "response.completed", function(payload)
     self.status = "completed"
+    self.soft_stop = false
     if payload and payload.usage then
       self.usage = payload.usage
     end
@@ -348,6 +439,7 @@ function View:_subscribe()
   -- Terminal failure (provider/protocol/timeout).
   sub(self.events.events.response_failed or "response.failed", function(payload)
     self.status = "failed"
+    self.soft_stop = false
     self.errors[#self.errors + 1] = (payload and payload.error) or { message = "unknown failure" }
     self._async = false
     self:_render()
@@ -355,6 +447,7 @@ function View:_subscribe()
   -- Terminal cancel (via :MaxaStop / provider auto-cancel).
   sub(self.events.events.response_cancelled or "response.cancelled", function(payload)
     self.status = "cancelled"
+    self.soft_stop = false
     self._async = false
     self:_render()
   end)
@@ -520,9 +613,10 @@ function View:open()
       { win = "chat", border = M._edge_border(placement.position) },
     }),
     on_close = function()
-      -- External close (e.g. `:q`): drop the UI refs but keep the session
-      -- alive so the next `:MaxaChat` / `open()` rebuilds the layout.
-      self:_reset_ui_refs()
+      -- External close (e.g. `:q`): W8 view-delete — detach the view (session
+      -- View entity -> detached) and drop the UI refs; the session stays alive
+      -- so the next `:MaxaChat` / `open()` rebuilds the layout.
+      self:detach("layout closed")
     end,
   })
   layout:show()
@@ -532,6 +626,9 @@ function View:open()
   self._buf = chat_obj.buf
   self._chat_win = chat_obj.win
   self._opened = true
+  -- W8: bind the session View entity to this chat buffer (created at open;
+  -- headless consumers can attach a synthetic bufnr without a window pair).
+  self:_attach_session_view(self._buf)
   -- chat-ui-render: attach markdown treesitter + decorations + follow autocmd
   -- to the chat buffer before the first render.
   self:_bind_render_buffer(self._buf, self._chat_win)
@@ -974,6 +1071,12 @@ function View:submit(text, opts)
     self.errors[#self.errors + 1] = res.error
     self:_render()
   end
+  if res and not res.rejected then
+    -- W6: an accepted submit starts a fresh chain — the orchestrator resets its
+    -- soft-stop marker, so the view mirrors the cleared flag (the old request's
+    -- drain boundary is consumed; a new soft stop must be requested anew).
+    self.soft_stop = false
+  end
   if res and (res.terminal_state or res.async) then
     -- The streaming callbacks / terminal event will reconcile status + render.
     self:_render()
@@ -1006,6 +1109,55 @@ function View:stop()
   return false
 end
 
+--- Soft-stop after the current response/tool batch (W6; `:MaxaSoftStop`,
+--- `<C-s>`/`gs` keymaps). Delegates to orchestrator:soft_stop: accepted only
+--- while the session is busy, a repeat request toggles it off, and the
+--- provider/tools are NEVER cancelled — the current work drains to its natural
+--- terminal, results are persisted, and the next automatic continuation is
+--- suppressed (decision-table soft_stop slot -> wait + AgentLoop parked).
+--- Updates the view soft-stop flag and status projection; UI-independent
+--- (headless-testable, no window pair or user interaction required).
+---@return table result orchestrator soft_stop result
+function View:soft_stop()
+  local res = self.orch:soft_stop()
+  if res then
+    if res.accepted then
+      self.soft_stop = true
+    elseif res.toggled_off then
+      self.soft_stop = false
+    elseif res.error then
+      -- Typed rejection (closed session / not busy): surface as an error note.
+      self.errors[#self.errors + 1] = res.error
+    end
+  end
+  self:_render()
+  return res
+end
+
+--- Arm the one-shot context-limit stop (`:MaxaContextStop`). Delegates to
+--- orchestrator:context_stop_arm: parses absolute (70/"70%") or relative (+N)
+--- targets against the current usage ratio; usage unavailable fails closed.
+--- When the limit is reached while busy, a one-shot soft stop is requested
+--- (status projection shows "status: soft-stop requested"); while idle the next
+--- automatic submit is blocked. UI-independent (headless-testable).
+---@param target string|number "70" | "70%" | "+10" | 70
+---@return boolean ok
+---@return nil|table err typed error when arm failed
+function View:context_stop(target)
+  local ok, err = self.orch:context_stop_arm(target)
+  if not ok then
+    self.errors[#self.errors + 1] = err
+    self:_render()
+    return false, err
+  end
+  local ratio = self.orch._context_stop and self.orch._context_stop.target_ratio
+  vim.notify(
+    string.format("Context limit stop armed at %d%% (of provider context window).", math.floor((ratio or 0) * 100)),
+    vim.log.levels.INFO
+  )
+  self:_render()
+  return true, nil
+end
 --- Clear the rendered messages (keeps session + provider + model).
 ---@return self
 function View:clear()
@@ -1027,6 +1179,11 @@ function View:close()
   local changed = false
   if self.status ~= "closed" then
     changed = self.orch:close() or changed
+  end
+  -- W8: the session View entity follows the destroyed session to `closed`
+  -- (record-only transition; idempotent, works from attached/hidden/detached).
+  if self._session_view then
+    self.orch.session:close_view(self._session_view, "view close")
   end
   -- Mark the view closed directly. The baseline orchestrator/session `close()` never
   -- emits `chat.closed` (the event name exists in the events bus but has no emitter),
@@ -1050,6 +1207,13 @@ function View:close()
     end)
   end
   self:_reset_ui_refs()
+  -- W8: a closed view leaves the live-view registry (no exit-teardown target).
+  for i, v in ipairs(M._views) do
+    if v == self then
+      table.remove(M._views, i)
+      break
+    end
+  end
   return changed
 end
 
@@ -1286,6 +1450,12 @@ function View:_status_line()
     return M.UI.closed
   end
   if self.status == "busy" then
+    -- W6: while a soft stop is requested the busy projection switches to the
+    -- drain label ("status: soft-stop requested"); the provider/tools are
+    -- still running until the drain boundary clears the flag.
+    if self.soft_stop then
+      return M.UI.status_soft_stop
+    end
     return M.UI.status_busy
   end
   if self.status == "completed" then
@@ -1407,6 +1577,18 @@ function View:_bind_render_buffer(buf, win)
   -- foldtext summaries are refreshed on every render.
   render.fold_bind(buf, win, { folded = not self.show_reasoning })
   self._render_stats = { appends = 0, rewrites = 0, noops = 0 }
+  -- W8 view-delete: a deleted chat buffer (e.g. `:bdelete`) detaches the view
+  -- and preserves the session/request; render callbacks become inert through
+  -- the invalid-buffer guard in _render.
+  local buf_group = vim.api.nvim_create_augroup("maxa_chat_buf_delete", { clear = false })
+  vim.api.nvim_create_autocmd("BufDelete", {
+    buffer = buf,
+    group = buf_group,
+    desc = "maxa: buffer deleted -> view detached (session survives)",
+    callback = function()
+      self:detach("buffer deleted")
+    end,
+  })
   -- Follow semantics: manual scroll-up pauses following; reaching the bottom
   -- resumes it (ui/init.lua follow() semantics).
   local group = vim.api.nvim_create_augroup("maxa_chat_follow", { clear = false })
@@ -1453,6 +1635,32 @@ function View:set_follow(enabled)
   return self
 end
 
+--- Best-effort per-view teardown for nvim exit (W8): the orchestrator is shut
+--- down quietly (owned handles cancelled, timers stopped, session closed),
+--- subscriptions are removed and UI refs dropped. No rendering, no new events;
+--- safe for a view whose buffer is already gone. Idempotent.
+---@return table report orchestrator shutdown report
+function View:shutdown()
+  local report = { closed = self:_is_closed_view() }
+  if not self:_is_closed_view() then
+    report = self.orch:shutdown()
+    self.status = "closed"
+    self._async = false
+  end
+  for _, off in ipairs(self._subs) do
+    pcall(off)
+  end
+  self._subs = {}
+  self:_reset_ui_refs()
+  for i, v in ipairs(M._views) do
+    if v == self then
+      table.remove(M._views, i)
+      break
+    end
+  end
+  return report
+end
+
 ---------------------------------------------------------------------------
 -- Module-level operations / commands
 ---------------------------------------------------------------------------
@@ -1475,6 +1683,40 @@ function M.stop()
   return v:stop()
 end
 
+--- Soft-stop the default view (drain then suppress continuation).
+---@return table|nil orchestrator soft_stop result (nil when no view exists)
+function M.soft_stop()
+  local v = M._default
+  if not v then
+    return nil
+  end
+  return v:soft_stop()
+end
+
+--- Module-level context-limit stop control (`:MaxaContextStop`).
+--- Args: <percent|+N|off> — "70" / "70%" absolute, "+10" relative, "off" disarms.
+---@param args string|nil command arguments (may be "")
+---@return boolean ok
+function M.context_stop(args)
+  local v = M._default
+  if not v then
+    vim.notify("MaxaContextStop: no Chat view is open (:MaxaChat first)", vim.log.levels.WARN)
+    return false
+  end
+  args = args or ""
+  if args == "" then
+    vim.notify('usage: :MaxaContextStop <percent|+N|off>  (e.g. 70, "70%", +10)', vim.log.levels.INFO)
+    return false
+  end
+  if args == "off" or args == "disarm" then
+    v.orch:context_stop_disarm()
+    vim.notify("Context limit stop disarmed.", vim.log.levels.INFO)
+    v:_render()
+    return true
+  end
+  return v:context_stop(args)
+end
+
 --- Close the default view.
 ---@return boolean changed
 function M.close()
@@ -1483,6 +1725,29 @@ function M.close()
     return false
   end
   return v:close()
+end
+
+--- Best-effort runtime teardown for nvim exit (W8; `VimLeavePre` hook). Every
+--- live view's orchestrator is shut down quietly (owned provider/tool handles
+--- cancelled, timers stopped, session closed); failures are collected into the
+--- returned report and never create new work. Idempotent. Headless-testable:
+--- calling this directly simulates the exit hook without leaving nvim.
+---@return table report { views=integer, failures=table[] }
+function M.shutdown()
+  local report = { views = 0, failures = {} }
+  -- Snapshot the registry: shutdown may unregister views while iterating.
+  local views = {}
+  for _, v in ipairs(M._views) do
+    views[#views + 1] = v
+  end
+  for _, v in ipairs(views) do
+    local ok, err = pcall(v.shutdown, v)
+    if not ok then
+      report.failures[#report.failures + 1] = { what = "view", error = tostring(err) }
+    end
+    report.views = report.views + 1
+  end
+  return report
 end
 
 ---@private Demo stream chunks: a long reasoning block + one tool call + usage,
@@ -1533,7 +1798,19 @@ function M.setup()
   end, { desc = "maxa: open/focus the minimal Chat view", nargs = 0 })
   vim.api.nvim_create_user_command("MaxaStop", function()
     M.stop()
-  end, { desc = "maxa: cancel the in-flight provider stream", nargs = 0 })
+  end, { desc = "maxa: hard-cancel the in-flight provider stream/tool batch (terminal cancelled)", nargs = 0 })
+  vim.api.nvim_create_user_command("MaxaSoftStop", function()
+    M.soft_stop()
+  end, {
+    desc = "maxa: drain the current response/tool batch, then suppress automatic continuation (never cancels)",
+    nargs = 0,
+  })
+  vim.api.nvim_create_user_command("MaxaContextStop", function(a)
+    M.context_stop(a.args)
+  end, {
+    desc = 'maxa: arm one-shot context-limit stop (<percent|+N|off>; e.g. 70, "70%", +10)',
+    nargs = "*",
+  })
   vim.api.nvim_create_user_command("MaxaClose", function()
     M.close()
   end, { desc = "maxa: close the Chat view and destroy the session", nargs = 0 })

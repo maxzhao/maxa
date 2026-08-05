@@ -8,6 +8,12 @@
 ---   B. mock provider with scripted normalized events injected through
 ---      provider_params (reasoning + tool_call fragments + usage snapshots):
 ---      exact bus event order, host parts rendering state, persisted parts.
+---      W4: the recorded tool_call now EXECUTES (no handler registered ->
+---      standard unknown-tool error result persisted), the batch barrier fires
+---      (tool_batch.started/tool_call.finished/tool_batch.finished), and the
+---      direct pass-through continuation submits one automatic request with
+---      the default echo body, which completes the chain. The final displayed
+---      usage is the continuation's local estimate (out=8).
 ---   C. .maxa/runtime.yaml loads; config.resolve_provider binds the registered
 ---      openai_chat adapter; orchestrator:use_provider_record falls back to mock
 ---      without a key and binds the real adapter with one (no network).
@@ -128,25 +134,48 @@ do
     "usage.updated",
     "usage.updated",
     "response.completed",
+    -- W4/W5 ToolBatch phase: the recorded tool_call executes (read_file has no
+    -- injected handler -> standard unknown-tool error result, persisted), the
+    -- barrier fires once, then the W5 continuation decision point persists the
+    -- decision (continuation.decided, additive) and submits one automatic
+    -- request (default echo body, no tool calls) which streams to its own
+    -- response.completed. The added continuation.decided sits between the
+    -- batch terminal and the next request.submitted (spec §Persistence/event
+    -- order: emit batch terminal -> persist continuation decision -> schedule
+    -- next intent).
+    "tool_batch.started",
+    "tool_call.finished",
+    "tool_batch.finished",
+    "continuation.decided",
+    "request.submitted",
+    "request.started",
+    "response.started",
+    "message.delta",
+    "message.delta",
+    "response.completed",
   }
   assert_eq(table.concat(seen, ","), table.concat(want, ","), "B: bus event order")
   assert_eq(v.status, "completed", "B: host status")
-  -- Final usage: the provider_final snapshot (final=true) wins over local estimate.
-  check(v.usage ~= nil and v.usage.source == "provider_final", "B: provider_final usage (got " .. tostring(v.usage and v.usage.source) .. ")")
-  assert_eq(v.usage and v.usage.input_tokens, 10, "B: usage input_tokens")
-  assert_eq(v.usage and v.usage.output_tokens, 20, "B: usage output_tokens")
-  -- Host parts rendering state.
+  -- W4: the final displayed usage is the continuation turn's local estimate
+  -- (default echo emits no usage events), not the request-1 provider_final
+  -- snapshot (35 echo chars / 4 -> out=8; input unknown -> absent).
+  check(v.usage ~= nil and v.usage.source == "local_estimate", "B: continuation local_estimate usage (got " .. tostring(v.usage and v.usage.source) .. ")")
+  assert_eq(v.usage and v.usage.output_tokens, 8, "B: continuation usage output_tokens")
+  -- Host parts rendering state: the automatic continuation reuses the same
+  -- assistant item (no user boundary) and its accumulated text replaces the
+  -- request-1 text; the tool_call status stays "completed".
   local last = v.items[#v.items]
   check(last ~= nil and last.role == "assistant", "B: last item is assistant")
-  assert_eq(last.text, "Hello world", "B: accumulated assistant text")
+  assert_eq(last.text, "Hello from maxa mock/echo provider.", "B: final accumulated text (continuation echo)")
   assert_eq(last.reasoning, "think ", "B: accumulated reasoning")
   check(last.tool_calls ~= nil and #last.tool_calls == 1, "B: one tool_call tracked")
   assert_eq(last.tool_calls[1].call_id, "call_1", "B: tool call_id")
   assert_eq(last.tool_calls[1].name, "read_file", "B: tool name")
   assert_eq(last.tool_calls[1].status, "completed", "B: tool status")
-  -- Persisted assistant message parts (reasoning + text + tool_call).
-  local msg = v.orch.messages:last()
-  check(msg ~= nil and msg.role == "assistant", "B: persisted assistant message")
+  -- Persisted messages: user + assistant(tool_call) + tool(result) + assistant.
+  check(v.orch.messages:len() == 4, "B: four persisted messages (got " .. tostring(v.orch.messages:len()) .. ")")
+  local msg = v.orch.messages:get(2)
+  check(msg ~= nil and msg.role == "assistant", "B: persisted assistant message (tool_call)")
   check(msg.content ~= nil and #msg.content == 3, "B: three content parts (got " .. tostring(#(msg.content or {})) .. ")")
   assert_eq(msg.content[1].type, "reasoning", "B: part[1] reasoning")
   assert_eq(msg.content[1].content, "think ", "B: part[1] reasoning content")
@@ -157,6 +186,15 @@ do
   assert_eq(msg.content[3].call_id, "call_1", "B: part[3] call_id")
   assert_eq(msg.content[3].name, "read_file", "B: part[3] name")
   assert_eq(msg.content[3].arguments, '{"path":"x"}', "B: part[3] encoded args")
+  -- W4 tool result persisted before the continuation: unknown tool error.
+  local tool_msg = v.orch.messages:get(3)
+  check(tool_msg ~= nil and tool_msg.role == "tool", "B: persisted tool result message")
+  assert_eq(tool_msg.content[1].status, "error", "B: unknown tool result is error")
+  check(tool_msg.content[1].is_error == true, "B: unknown tool result is_error")
+  check(tool_msg.content[1].content:find("unknown tool", 1, true) ~= nil, "B: unknown tool diagnostic")
+  -- The continuation assistant message is the stack tail.
+  local last_msg = v.orch.messages:last()
+  check(last_msg.role == "assistant" and last_msg.content[1].text == "Hello from maxa mock/echo provider.", "B: continuation assistant message")
 end
 
 -------------------------------------------------------------------------------
@@ -220,7 +258,9 @@ do
   check(has_line(lines, "think"), "D: reasoning content rendered by default")
   check(has_line(lines, "### Response"), "D: response header closes the fold")
   check(has_line(lines, "✅ read_file"), "D: tool_call status line with icon")
-  check(has_line(lines, "status: completed (in=10 out=20 total=30)"), "D: normalized usage status line")
+  -- W4: after the automatic continuation the latest turn's usage is the echo
+  -- local estimate (out=8), not the request-1 provider_final snapshot.
+  check(has_line(lines, "status: completed (out=8)"), "D: normalized usage status line (continuation local estimate)")
 
   -- show_reasoning=true view: full reasoning content.
   local bus2 = events.new()

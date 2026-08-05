@@ -332,7 +332,9 @@ M.content_part = {
   name = str(true, nil),
   arguments = str(true, nil),
   -- tool_result: paired call id + status + provider-facing content
-  status = { type = "enum", optional = true, choices = { "success", "error" } },
+  -- W5 (additive): "cancelled" added for synthetic restore/repair results
+  -- (restore-agent-loop injects cancelled results for orphan tool calls).
+  status = { type = "enum", optional = true, choices = { "success", "error", "cancelled" } },
   is_error = boolean(true, nil),
   -- context_ref: stable context item id + snapshot/hash (never a live buffer ptr)
   item_id = str(true, nil),

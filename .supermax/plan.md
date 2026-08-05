@@ -172,21 +172,42 @@ headless 脚本验证不算人工可审核。此条款为阶段1 gate 必要条�
 ## 阶段 2 — 完整会话状态机 + 自动工具循环
 
 > 纵向：AgentLoop 与连续能力。横向：事件/配置继续增强（stop/context/续跑 case）。
+> 实施：`.supermax/drafts/phase2-implementation-plan.md` + `phase2-todo.md`（W1-W8 子代理实施，主会话逐波验证）。
 
 ### 实现
-- [ ] Session/Request/ToolBatch/View 显式实体 + 合法转型 reducer（每转型 owner/event/reason/idempotency）
-- [ ] submit 幂等：manual/automatic/regenerate/restore/retry
-- [ ] continuation 决策表 + 持久续 key；tool 结果持久化后再续
-- [ ] stop / soft_stop / context-stop / watchdog（预算可配置、手动提交重置、重试耗尽终端错误）
-- [ ] stale callback/generation 拒绝；async 所有权与取消传播
-- [ ] config：orchestrator（tool_concurrency/watchdog/context_stop）
-- [ ] events：ToolBatchFinished/ContinuationDecided/stopped/failed
+- [x] Session/Request/ToolBatch/View 显式实体 + 合法转型 reducer（每转型 owner/event/reason/idempotency）——`session/init.lua`（状态全集对齐 chat-runtime-state、`transition()` 数据驱动转型表、终端 CAS、generation、兼容层）
+- [x] submit 幂等：manual/automatic/regenerate/restore/retry——intent_id 重放返回既有决策（`replay_result`）、retry_of 链、`truncate_after_last_user`、`Session:restore`
+- [x] continuation 决策表 + 持久续 key；tool 结果持久化后再续——`orchestrator/decide.lua`（8 条件优先级）、`session.loop.decisions` 同 key 拒绝重复决策、tool_result 先于 barrier/续跑
+- [x] stop / soft_stop / context-stop / watchdog（预算可配置、手动提交重置、重试耗尽终端错误）——cancel/stop/soft_stop 三操作分离 + `orchestrator/watchdog.lua`（clock 驱动、工具执行排除、max_retries 默认 3、耗尽单次终端 failed）
+- [x] stale callback/generation 拒绝；async 所有权与取消传播——provider/tool/watchdog/view 全路径 id+generation+terminal+shutdown 守卫；view detach/close/nvim-exit/double-cleanup
+- [x] config：orchestrator（tool_concurrency/watchdog/context_stop）——schema → 运行时消费（默认 tool_concurrency=1、watchdog{false,180000,3}、context_stop{false}）
+- [x] events：ToolBatchFinished/ContinuationDecided/stopped/failed——tool_batch.{started,draining,finished}/tool_call.finished/continuation.decided/watchdog.retry/chat.soft_stop_{requested,completed}/session.transition_rejected（additive）
 
 ### 伴随验证
-- [ ] 状态/编排/异步行（R-STATE-*）：manual submit、duplicate submit、tool continuation、soft-stop（stream+tools）、
-  context-limit（busy/idle）、watchdog（retry/exhausted）、terminal-race、restore-agent-loop
-- [ ] 时刻关键：terminal-race（首个终端转换胜出）、restore-agent-loop（无重复续跑/记录）
+- [x] 状态/编排/异步行（R-STATE-*）：manual submit、duplicate submit、tool continuation、soft-stop（stream+tools）、context-limit（busy/idle）、watchdog（retry/exhausted）、terminal-race、restore-agent-loop——`tests/state/` 32 fixture（含 async 组 6 项）全绿
+- [x] 时刻关键：terminal-race（首个终端转换胜出）、restore-agent-loop（无重复续跑/记录）——`tests/state/{terminal-race,restore-agent-loop}.lua` 断言
 
+**本层 gate**：含工具调用的自动续跑 + soft-stop 操作成功；R-STATE 行为经注入确定性时钟跑通。
+
+> **阶段2 gate 声明（2026-08-05）**：✅ 技术验证通过（人工可审核条款待用户 UI 实测）。
+> 技术证据（主会话逐波复验全绿）：`just test-state` 32/32（R-STATE 状态/编排/异步全套，fake clock 注入确定性时间）；
+> smoke、w8 chain、w10 ui_chain（三真实 provider 链路）、ui 五套、test-protocol(41)、test-protocol-unit(16+67)、
+> test-config(72)、lint、`git diff --check` 全部通过；import-guard 无违禁。
+> 关键行为：含工具调用的自动续跑（tool-continuation/continuation-once：结果持久化先于续跑、每批恰一次 continuation）、
+> soft-stop（soft-stop-stream/soft-stop-tools：drain 后抑制续跑、toggle 关闭、不取消 provider）、context-stop（busy 一次性/idle 阻断）、
+> watchdog（有界重试 3 次每重试新 generation、手动提交重置、耗尽单次终端 failed + Chat 解锁）、terminal-race 首个终端胜出、
+> restore-agent-loop 无重复续跑。UI 入口已就绪：`:MaxaSoftStop`、`<C-s>`/`gs`（soft-stop）、`:MaxaStop`（hard cancel）、
+> 状态投影 \"status: soft-stop requested\"。
+>
+> **人工实测步骤（用户按此在 UI 中复核确认）**：
+> 1. `cd ~/maxa && just run`（或 `NVIM_APPNAME=nvim-maxa nvim`）
+> 2. `:MaxaChat` 打开；`:MaxaProvider deepseek-chat`（或 mock）
+> 3. 输入要求工具调用的提示词（真实 provider 如 deepseek 支持工具时）→ 观察自动续跑：工具结果后模型自动继续，无需手动回车
+> 4. 回复中途按 `<C-s>`（insert 模式）或 `gs`（normal 模式）/ `:MaxaSoftStop` → 当前回复/工具批自然完成后状态行出现 "status: soft-stop requested"，且不再自动续跑
+> 5. `:MaxaContextStop 10`（或 `+5`）→ 通知 "armed at 10%"；继续对话，上下文用量（本地估算或真实 usage 快照）达到阈值后自动 soft-stop（状态行 "soft-stop requested"）；`:MaxaContextStop off` 解除
+> 6. `:MaxaStop` 仍为立即取消（hard cancel）；`:MaxaProvider mock` 可离线复核（mock 注入工具调用 + soft-stop/context-stop 流程）
+> 7. 全部符合预期 → 人工审核通过，阶段2 gate 成立（headless 证据见上）
+> 配置参考：`docs/runtime-config.md`（全部配置项默认值+功能描述）、`docs/runtime.yaml.example`（可复制模板）
 **本层 gate**：含工具调用的自动续跑 + soft-stop 操作成功；R-STATE 行为经注入确定性时钟跑通。
 
 ---

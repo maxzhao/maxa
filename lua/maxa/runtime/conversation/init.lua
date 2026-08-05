@@ -188,13 +188,18 @@ end
 ---@param call_id string paired tool_call call id
 ---@param status string "success"|"error"
 ---@param content string provider-facing result content
----@param opts? table { is_error?: boolean }
+---@param opts? table { is_error?: boolean, provenance?: string }
+---   provenance (W5, additive): synthetic-result marker (e.g. "restore_repair");
+---   stored as an extra part field (schema content parts allow extra fields).
 ---@return table part
 function M.tool_result_part(call_id, status, content, opts)
   opts = opts or {}
   local part = { type = "tool_result", call_id = call_id, status = status, content = tostring(content or "") }
   if opts.is_error ~= nil then
     part.is_error = opts.is_error
+  end
+  if opts.provenance ~= nil then
+    part.provenance = opts.provenance
   end
   return part
 end
@@ -533,6 +538,24 @@ function Stack:push(msg)
   self.messages[#self.messages + 1] = deepcopy(msg)
   return self
 end
+--- Insert a normalized message at a 1-based position (W5 restore-agent-loop
+--- repair: synthetic tool results are injected immediately after the owning
+--- assistant message, mirroring the downstream orphan-pairing behaviour). The
+--- inserted message gets `_meta.index = idx`; existing messages keep their
+--- identity (their `_meta.index` is NOT renumbered — identity contract).
+---@param idx integer 1-based insert position (1..len+1)
+---@param data table message data (see M.new_message)
+---@param opts? table message options (see M.new_message)
+---@return table msg the inserted normalized message
+function Stack:insert_message(idx, data, opts)
+  opts = opts or {}
+  if opts.index == nil then
+    opts.index = idx
+  end
+  local msg = M.new_message(data, opts)
+  table.insert(self.messages, idx, msg)
+  return msg
+end
 
 --- Iterate messages in insertion order: `for msg in stack:iter() do ... end`.
 ---@return function iterator
@@ -586,6 +609,33 @@ function Stack:replace_last_assistant(data, opts)
   })
   self.messages[idx] = msg
   return prev, msg
+end
+
+--- Remove every message after the last user message and return them in original
+--- order (regeneration boundary, phase-2 W3: the last user turn is preserved
+--- and becomes the new request context; the prior assistant attempt including
+--- its tool calls and subsequent tool results is archived by the caller).
+--- Returns nil when the stack has no user message (no mutation).
+---@return table[]|nil removed prior assistant attempt messages
+function Stack:truncate_after_last_user()
+  local cut = 0
+  for i = #self.messages, 1, -1 do
+    if self.messages[i].role == "user" then
+      cut = i
+      break
+    end
+  end
+  if cut == 0 then
+    return nil
+  end
+  local removed = {}
+  for i = cut + 1, #self.messages do
+    removed[#removed + 1] = self.messages[i]
+  end
+  for i = #self.messages, cut + 1, -1 do
+    self.messages[i] = nil
+  end
+  return removed
 end
 
 ----------------------------------------------------------------------------

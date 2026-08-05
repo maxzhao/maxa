@@ -51,6 +51,48 @@ M.events = {
   response_cancelled = "response.cancelled",
   chat_stop_requested = "chat.stop_requested",
   chat_closed = "chat.closed",
+  -- W1 (phase-2): state-machine diagnostic. Additive; emitted only when a legal
+  -- transition is rejected (never for valid transitions, which are record-only
+  -- until later waves add their batch/decision/stop events).
+  session_transition_rejected = "session.transition_rejected",
+  -- W4 (phase-2): ToolBatch execution lifecycle. Additive; batch-scoped events
+  -- emitted by the tools executor (lua/maxa/runtime/tools/init.lua). The
+  -- session's transition records keep their own names (tool_batch.completed /
+  -- failed / cancelled) for audit; these bus events are the runtime projections.
+  -- `tool_call.finished` is distinct from `tool_call.completed` (provider-side
+  -- argument accumulation): it fires once per executed call after its result is
+  -- persisted, with the runtime result status.
+  tool_batch_started = "tool_batch.started",
+  tool_batch_draining = "tool_batch.draining",
+  tool_batch_finished = "tool_batch.finished",
+  tool_call_finished = "tool_call.finished",
+  -- W5 (phase-2): continuation decision point. Additive; emitted exactly once
+  -- per durable continuation key, after the batch terminal event and before the
+  -- scheduled next intent (request-orchestrator §Persistence/event order:
+  -- "emit batch terminal -> persist continuation decision -> schedule next
+  -- intent"). Carries the durable continuation key so consumers can dedupe
+  -- late/duplicate terminal callbacks and restore replays.
+  continuation_decided = "continuation.decided",
+  -- W6 (phase-2): soft-stop request state. Additive; emitted when a soft stop
+  -- is requested (requested=true) or toggled off (requested=false). `source`
+  -- distinguishes a manual request ("manual") from a context-stop trigger
+  -- ("context_stop"). The soft stop itself never cancels the provider/tools:
+  -- the drain then suppresses the next automatic continuation through the
+  -- decision table (soft_stop/context_stop input slots -> wait).
+  soft_stop_requested = "chat.soft_stop_requested",
+  -- W6 (phase-2): soft-stop completion boundary. Additive; emitted exactly once
+  -- at the drain boundary (text-only response terminal or the W5 continuation
+  -- decision point) when a pending soft-stop request (manual or context-stop
+  -- trigger) was consumed. Payload: { session_id, request_id, generation,
+  -- turn_id, tool_batch_id|nil, reason = "soft_stop"|"context_stop" }. The
+  -- session boundary is observable via `continuation.decided`
+  -- (decision_kind=wait, decision_reason) plus session waiting_for_user.
+  soft_stop_completed = "chat.soft_stop_completed",
+  -- W7 (phase-2): watchdog retry reservation (additive; exactly once per retry
+  -- reservation; exhaustion is carried by the terminal response.failed with
+  -- reason "watchdog_exhausted" + counters). Payload: { session_id, request_id,
+  -- generation, retry_count, max_retries, reason = "no_message"|"no_progress" }.
+  watchdog_retry = "watchdog.retry",
 }
 
 -- event -> array of callbacks (preserves registration order = dispatch order).
@@ -193,8 +235,15 @@ end
 
 --- Create a new isolated bus instance. Useful in later phases for session
 --- scoping; phase 0 uses the default singleton exports above.
+---@param opts? table {
+---   clock?: table|nil deterministic clock (W2): { now_ms = fun(): integer };
+---     when provided the envelope `emitted_at` uses clock.now_ms() instead of
+---     the wall clock. Tests inject a fake clock (tests/state/lib/fake_clock.lua)
+---     so R-STATE fixtures assert exact, reproducible timestamps.
+--- }
 ---@return table a fresh bus exposing the same on/emit/once/count API
-function M.new()
+function M.new(opts)
+  opts = opts or {}
   local bus = {
     listeners = {},
     failures = {},
@@ -202,6 +251,9 @@ function M.new()
     events = M.events,
   }
   local function bus_now()
+    if opts.clock and opts.clock.now_ms then
+      return opts.clock.now_ms()
+    end
     return now_ms()
   end
   function bus.on(ev, cb)
