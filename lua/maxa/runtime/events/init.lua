@@ -114,6 +114,40 @@ M.events = {
   skill_hook_fired = "skill.hook_fired",
   skill_hook_failed = "skill.hook_failed",
   skill_hook_restored = "skill.hook_restored",
+  -- W3 (phase-4): session trace subsystem projections (additive). Emitted by the
+  -- history service (lua/maxa/runtime/history/init.lua) after trace operations;
+  -- the trace module itself is a pure storage/query library and never emits.
+  --   * trace.turn_recorded: one visible natural turn event appended
+  --     (payload { root_trace_id, event_id, kind });
+  --   * trace.backfilled: backfill_chat completed (payload { root_trace_id, result });
+  --   * trace.archive_created / trace.compression_applied: compaction archive
+  --     projections emitted by the history service since W4 (compaction wave):
+  --     payload { root_trace_id, event_id, kind } / { root_trace_id, event_id, action }.
+  trace_turn_recorded = "trace.turn_recorded",
+  trace_backfilled = "trace.backfilled",
+  trace_archive_created = "trace.archive_created",
+  trace_compression_applied = "trace.compression_applied",
+  -- W4 (phase-4): history service lifecycle projections (additive). Emitted by the
+  -- history service (lua/maxa/runtime/history/init.lua) after save/restore/title/
+  -- compact operations; the service guards absent buses (never raises).
+  --   * history.saved: one session envelope durably committed
+  --     (payload { save_id, session_id, status, generation });
+  --   * history.save_failed: any non-index persistence failure
+  --     (payload { save_id?, session_id, code, error });
+  --   * history.saved_index_stale: session file committed but index update failed
+  --     (payload { save_id, session_id, code, error }); rebuild_index() recovers;
+  --   * history.restored: restore_bundle/open returned a recovery bundle
+  --     (payload { save_id, session_id });
+  --   * history.title_changed: a title generation/refresh result was applied and
+  --     persisted (payload { save_id, session_id, title, is_refresh });
+  --   * history.compacted: compaction applied (payload { save_id, session_id,
+  --     action, generation, truncated_count, archived }).
+  history_saved = "history.saved",
+  history_save_failed = "history.save_failed",
+  history_saved_index_stale = "history.saved_index_stale",
+  history_restored = "history.restored",
+  history_title_changed = "history.title_changed",
+  history_compacted = "history.compacted",
 }
 
 -- event -> array of callbacks (preserves registration order = dispatch order).

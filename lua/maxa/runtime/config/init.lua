@@ -269,6 +269,26 @@ M.SKILLS_ROOTS_KEYS = {
   config = true,
   project = true,
 }
+--- Allowed keys of the `history` config block (W4-B; fail-closed unknown-key
+--- style, same as mcp/skills). Default values live in lua/maxa/init.lua
+--- `M.defaults.history` (comments are the documentation).
+M.HISTORY_KEYS = {
+  enabled = true,
+  auto_save = true,
+  continue_last = true,
+  title_provider = true,
+  expiration_days = true,
+  title_generation_opts = true,
+}
+--- Allowed keys of the `history.title_generation_opts` sub-block (W4-B).
+M.HISTORY_TITLE_GENERATION_KEYS = {
+  refresh_every_n_prompts = true,
+  max_refreshes = true,
+  format_title = true,
+}
+--- `history.title_provider` enum (W4-B): "auto" (LLM title with first_user
+--- fallback) | "first_user" | "none" (no title generation).
+M.HISTORY_TITLE_PROVIDERS = { auto = true, first_user = true, none = true }
 
 --- Check the `mcp` block (W7): enabled toggle + project-relative servers file
 --- path. Unknown keys are fail-closed configuration errors (same style as the
@@ -335,6 +355,93 @@ local function check_skills_block(skills)
   return nil
 end
 
+--- Check the `history` block (W4-B): Phase-4 session history switches.
+--- Fail-closed with typed errors (same style as check_mcp_block /
+--- check_skills_block): unknown keys rejected; `enabled`/`auto_save`/
+--- `continue_last` must be booleans; `title_provider` must be one of
+--- "auto" | "first_user" | "none"; `expiration_days` must be a non-negative
+--- integer; `title_generation_opts` must be a table with a non-negative
+--- integer `refresh_every_n_prompts`, a positive integer `max_refreshes`,
+--- and `format_title` nil or a function.
+---@param history table|nil history block
+---@return table|nil err typed error on failure
+local function check_history_block(history)
+  if history == nil then
+    return nil
+  end
+  if type(history) ~= "table" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "history block must be a table")
+  end
+  for k in pairs(history) do
+    if type(k) == "string" and not M.HISTORY_KEYS[k] then
+      return M.error(
+        schema.ERROR.INVALID_ARGUMENT,
+        ("history: unknown key %q (known: enabled, auto_save, continue_last, title_provider, expiration_days, title_generation_opts)"):format(
+          k
+        )
+      )
+    end
+  end
+  for _, f in ipairs({ "enabled", "auto_save", "continue_last" }) do
+    if history[f] ~= nil and type(history[f]) ~= "boolean" then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, ("history.%s must be a boolean"):format(f))
+    end
+  end
+  if history.title_provider ~= nil and not M.HISTORY_TITLE_PROVIDERS[history.title_provider] then
+    return M.error(
+      schema.ERROR.INVALID_ARGUMENT,
+      "history.title_provider must be one of auto, first_user, none (got " .. vim.inspect(history.title_provider) .. ")"
+    )
+  end
+  if history.expiration_days ~= nil then
+    local ed = history.expiration_days
+    if type(ed) ~= "number" or math.floor(ed) ~= ed or ed < 0 then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "history.expiration_days must be a non-negative integer")
+    end
+  end
+  if history.title_generation_opts ~= nil then
+    local tgo = history.title_generation_opts
+    if type(tgo) ~= "table" then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "history.title_generation_opts must be a table")
+    end
+    for k in pairs(tgo) do
+      if type(k) == "string" and not M.HISTORY_TITLE_GENERATION_KEYS[k] then
+        return M.error(
+          schema.ERROR.INVALID_ARGUMENT,
+          ("history.title_generation_opts: unknown key %q (known: refresh_every_n_prompts, max_refreshes, format_title)"):format(
+            k
+          )
+        )
+      end
+    end
+    if tgo.refresh_every_n_prompts ~= nil then
+      local rep = tgo.refresh_every_n_prompts
+      if type(rep) ~= "number" or math.floor(rep) ~= rep or rep < 0 then
+        return M.error(
+          schema.ERROR.INVALID_ARGUMENT,
+          "history.title_generation_opts.refresh_every_n_prompts must be a non-negative integer"
+        )
+      end
+    end
+    if tgo.max_refreshes ~= nil then
+      local mr = tgo.max_refreshes
+      if type(mr) ~= "number" or math.floor(mr) ~= mr or mr < 1 then
+        return M.error(
+          schema.ERROR.INVALID_ARGUMENT,
+          "history.title_generation_opts.max_refreshes must be a positive integer"
+        )
+      end
+    end
+    if tgo.format_title ~= nil and type(tgo.format_title) ~= "function" then
+      return M.error(
+        schema.ERROR.INVALID_ARGUMENT,
+        "history.title_generation_opts.format_title must be nil or a function"
+      )
+    end
+  end
+  return nil
+end
+
 local function validate_config(cfg)
   if type(cfg) ~= "table" then
     return M.error(schema.ERROR.INVALID_ARGUMENT, "configure: opts must merge into a table")
@@ -366,6 +473,11 @@ local function validate_config(cfg)
   local serr = check_skills_block(cfg.skills)
   if serr then
     return serr
+  end
+  -- W4-B: history block (fail-closed, unknown keys rejected).
+  local herr = check_history_block(cfg.history)
+  if herr then
+    return herr
   end
   return nil
 end

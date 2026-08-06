@@ -58,9 +58,28 @@ M.defaults = {
     --- 布局：vertical | horizontal | float（默认 vertical = 右侧半屏分屏）。
     layout = "vertical",
   },
-  --- 会话历史（阶段 4 消费；当前未启用）。
+  --- 会话历史与重启恢复（阶段 4 消费；默认关闭，显式开启后才装配服务）。
+  ---   * enabled：总开关；false 时不做任何 history 服务构造 / auto-save
+  ---     订阅 / continue_last 行为（:MaxaSave / :MaxaHistory 命令仍存在，
+  ---     调用时提示 history 未启用）。
+  ---   * auto_save：response.completed / tool_batch.finished /
+  ---     chat.soft_stop_completed 及视图关闭（确定性显式保存）时自动保存
+  ---     当前会话；unsavable（scratch）会话一律跳过。
+  ---   * continue_last：`:MaxaChat` 打开新默认视图且无既有会话时，自动恢复
+  ---     最近一次保存的会话（save -> close -> reopen 闭环）。
+  ---   * title_provider：标题生成策略 —— "auto"（LLM 生成，失败回退首条
+  ---     user 消息）| "first_user"（首条 user 消息截断）| "none"（不生成）。
+  ---   * expiration_days：过期清理天数；0 = 永不过期（启动时清理）。
+  ---   * title_generation_opts：标题生成选项 —— refresh_every_n_prompts
+  ---     （每 N 次提示刷新一次；0 = 仅首次生成）、max_refreshes（刷新次数
+  ---     上限）、format_title（nil | 标题后处理函数）。
   history = {
     enabled = false,
+    auto_save = true,
+    continue_last = false,
+    title_provider = "auto", -- "auto" | "first_user" | "none"
+    expiration_days = 0,
+    title_generation_opts = { refresh_every_n_prompts = 0, max_refreshes = 3, format_title = nil },
   },
   --- 编排器默认（阶段 2 已消费；未在此声明的内部默认值保留在 orchestrator 模块）。
   orchestrator = {},
@@ -146,6 +165,11 @@ local function assemble_extensions(config_mod)
     mcp_registry = asm.mcp_registry, -- additive: live mcp server registry
     mcp_error = asm.mcp_error,
     skills_state = asm.skills_state,
+    -- W4-B: Phase-4 history service (nil when history disabled / no project
+    -- root); history_error carries the typed failure when construction could
+    -- not run (assembly itself is never fatal).
+    history = asm.history,
+    history_error = asm.history_error,
     errors = asm.errors,
     teardown = asm.teardown,
   }
@@ -170,7 +194,7 @@ function M.setup(opts)
   assemble_extensions(config)
   local host = require("maxa.runtime.host.nvim")
   local ui = M.config.ui or {}
-  host.set_defaults({
+  local host_opts = {
     provider = M.config.provider and M.config.provider.default or "mock",
     model = M.config.model,
     show_reasoning = ui.show_reasoning,
@@ -178,7 +202,16 @@ function M.setup(opts)
     -- W1: the assembled tool registry becomes the host default so default
     -- views (e.g. `:MaxaChat` -> `_get_default`) see MCP/skill tools.
     tool_registry = M.assembly.tool_registry,
-  })
+  }
+  -- W4-B: history wiring is opt-in — the host receives the assembled service
+  -- ONLY when history.enabled and the assembly constructed one (project root
+  -- present). When disabled, the host stays history-free (commands exist but
+  -- notify; no auto-save subscriptions; no continue_last behavior).
+  if M.config.history and M.config.history.enabled and M.assembly.history then
+    host_opts.history = M.assembly.history
+    host_opts.history_config = M.config.history
+  end
+  host.set_defaults(host_opts)
   return M.config
 end
 return M

@@ -92,6 +92,13 @@ test-skills: (setup)
 test-gate: (setup)
     NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/p3-gate/gate.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
 
+# Headless phase-4 session-history fixture runner (tests/history): schema v1
+# envelope + atomic session/index writes + saved-index-stale + legacy
+# refs->context_items migration + generation serialization. Fixtures run
+# against a temp fixture project root (.maxa/); offline; no network or key.
+test-history: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/history/runner.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
 # Headless chat-ui-render validation (phase 1.5 subpackage 3.1): markdown treesitter
 # attach, header/separator extmarks, message structure, incremental append (no rewrite
 # jitter), follow-to-bottom, streaming virtual-text cursor, re-render equivalence.

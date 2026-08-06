@@ -300,19 +300,86 @@ headless 脚本验证不算人工可审核。此条款为阶段1 gate 必要条�
 > 纵向：持久化。横向：事件/配置补历史 case，消息模型引入 context/persistence 记录。
 
 ### 实现
-- [ ] `.maxa/history` schema_version=1 + 原子写/index 重建（saved-index-stale 处理）；不得写入 `.supermax/history`
-- [ ] 旧 `refs`→`context_items` 迁移（backup + corrupt 隔离、未知高版本 fail-closed）
-- [ ] save/list/open/fork/scratch/merge/transfer/rewind/redo/title/compact/trace
-- [ ] restart 恢复（absent view、不可用 MCP 容错、orphan tool 修复）
-- [ ] config：history（auto_save/continue_last/title_provider/expiration_days）
-- [ ] events：trace/turn 去重、恢复事件、compaction 归档事件
+- [x] `.maxa/history` schema_version=1 + 原子写/index 重建（saved-index-stale 处理）；不得写入 `.supermax/history`
+- [x] 旧 `refs`→`context_items` 迁移（backup + corrupt 隔离、未知高版本 fail-closed）
+- [x] save/list/open/fork/scratch/merge/transfer/rewind/redo/title/compact/trace
+- [x] restart 恢复（absent view、不可用 MCP 容错、orphan tool 修复）
+- [x] config：history（auto_save/continue_last/title_provider/expiration_days）
+- [x] events：trace/turn 去重、恢复事件、compaction 归档事件
 
 ### 伴随验证
-- [ ] 历史行（H-*）：create/save/open、write-failure、index-rebuild、legacy-refs-migration、fork、scratch、
+- [x] 历史行（H-*）：create/save/open、write-failure、index-rebuild、legacy-refs-migration、fork、scratch、
   merge-transfer、rewind-redo、compact、trace-dedup、title-late-callback
-- [ ] 时刻关键：write-failure（不报伪 saved）、rewind-redo（redo 提交一次）、trace-dedup（natural turn 一次）
+- [x] 时刻关键：write-failure（不报伪 saved）、rewind-redo（redo 提交一次）、trace-dedup（natural turn 一次）
 
 **本层 gate**：保存→关闭→重开恢复闭环；原子写/迁移/并发注入 race 各验证。
+
+> **阶段4 gate 声明（2026-08-06）**：✅ 技术验证通过（人工可审核条款待用户 UI 实测）。
+> 实施（`.supermax/drafts/phase4-implementation-plan.md` + `phase4-todo.md`，W1-W5 子代理实施 + 主会话逐波复验）：
+> W1 存储层（`history/{storage,ids,migrate,init}.lua`：原子写=同目录临时文件+rename、saved-index-stale 会话保留可重建、
+> generation 守卫拒绝 stale 覆盖、index read-modify-write 串行、legacy refs→context_items 迁移 .bak 保留原件、
+> corrupt 隔离不删除、schema_version>1 fail-closed）；W2 服务+操作族（save/list/open/fork/scratch/merge/transfer/
+> rewind/redo/title + title.lua generation 守卫 + auto_save listen/dispose）；W3 trace（trace.lua 1119 行纯库：
+> manifest/events.jsonl/index、append_event dedupe_key 去重、rebuild_index、membership、natural-turn 去重、
+> backfill 幂等、read/synthesize/find、archive 前置能力；服务层 start_trace/trace_read/backfill/record_turn；
+> events 追加 4 个 additive trace 名）；W4-A compact+恢复（compact.lua 纯策略：protected prefix/compute_protected_boundary/
+> build_summary_prompt 8 段结构；Service:compact TRACE ORDER archive→applied→save、overwrite 保 id / new 生成 compact_
+> 前缀 + provenance、summary 失败零落盘；restore_bundle 全量 bundle；events 追加 6 个 additive history 名）；W4-B
+> host/assemble/config 接线（defaults.history 补全 + check_history_block fail-closed；assemble asm.history 非阻塞 +
+> teardown dispose；host :MaxaSave/:MaxaHistory、View:close close-save 先于 session 销毁、view_durable_snapshot 组合
+> 公开 API、continue_last + _restoring 防递归、restore_chat 恢复流（close 旧 view → 新 view → provider 绑定 →
+> restore_agent_loop 孤儿修复 → bind+bind_trace 同 save_id 续写）；plugins cmd 列表；.gitignore 追加 .maxa/history/）。
+> 技术证据（主会话复验全绿）：`just test-history` 21/21（create-save-open/write-failure/index-rebuild/legacy-refs-migration/
+> concurrent-save/fork/scratch/merge-transfer/rewind-redo/title-late-callback/trace-dedup/trace-backfill/trace-fork-membership/
+> trace-read/compact/restart-recovery/history-operation-close/host-commands/auto-save/config-history/restore-end-to-end）；
+> smoke、test-state 33/33、test-config、test-protocol 41、test-protocol-unit 16+67、test-tools、test-mcp 12/12、
+> test-skills 12/12、test-gate P3_GATE_OK、ui 五套、w8/w10 链、lint、`git diff --check` 全部通过；import-guard 无违禁。
+> 关键行为：原子写（临时文件+rename，注入失败点）、saved-index-stale（会话保留可 rebuild、绝不伪报 saved）、
+> legacy 迁移（refs→context_items 一次、.bak 备份、corrupt 隔离、v2 fail-closed）、同会话 generation 串行 +
+> index read-modify-write 不丢条目、fork parent lineage + membership 新 span、scratch unsavable 零落盘、merge 精确
+> 范围 + provenance、transfer move 目标提交后删源、rewind truncate_after_last_user + gen+1、redo 恢复消息恰一次提交
+> （W4 集成）、title-late-callback generation 守卫、trace natural-turn 一次 + untracked 零写入、compact protected
+> prefix + 归档先于新 generation、restart 恢复（restore_agent_loop 孤儿修复 + 无自动续跑、provider 不可用保持 mock
+> 容错）、close-save 保证保存→关闭→重开同 save_id 连续性。`.maxa/history/` 已入 .gitignore（运行时数据不入库）。
+>
+> **人工实测步骤（用户按此在 UI 中复核确认；2026-08-06 配置已预置，只需操作）**：
+> 1. 配置已预置：`lua/plugins/maxa.lua` `opts` 已启用 `history = { enabled = true }`
+>    （auto_save 默认 true；continue_last 保持默认 false —— `:MaxaChat` 总是打开新会话；
+>    title_provider 默认 "auto"，LLM 不可用时回退首条用户消息；
+>    经真实 opts + setup 合并 headless 验证：`HISTORY_CFG_OK enabled=true continue_last=false`）；
+>    `cd ~/maxa && just run`
+> 2. `:MaxaChat` 打开**新会话**；`:MaxaProvider mock`；输入几条消息（含一次 stop/error 可选）→ 每次回复完成自动落盘
+>    （`ls .maxa/history/chats/` 出现 `<save_id>.json`，`index.json` 有条目；`.supermax/history` 无新写入）
+> 3. `:MaxaSave` 手动保存一次 → notify "saved <save_id>"
+> 4. `:MaxaClose` 关闭 → 重开 `:MaxaChat` → 这是**新的空会话**（continue_last 默认 false）；
+>    `:MaxaHistory` 选择最近条目 → **立即打开该历史会话**（消息/标题/usage 完整恢复），再次输入
+>    可继续对话且保存到**同一 save_id**
+> 5. `:MaxaHistory` 列表按时间倒序（title · model · N msgs · 相对时间）；选择旧会话 → 立即切换打开
+>    （当前会话 close 前自动保存）；**再次选择当前正打开的会话 → no-op**（notify "already the
+>    active session"，会话不变）；`:MaxaChat` 再开仍是新会话
+> 6. `:MaxaHistory 关键词` 过滤；`history.expiration_days = 30` 时重启后过期会话被清理（可选）
+> 7. 反向检验：`history = { enabled = false }` 时 `:MaxaSave`/`:MaxaHistory` 提示 history disabled，
+>    Chat 正常可用；mock/真实 provider 均可
+> 8. 全部符合预期 → 人工审核通过，阶段4 gate 成立（headless 证据见上）
+>
+> > **2026-08-06 行为修复（用户实测反馈）**：`:MaxaHistory` 选择历史后**立即打开窗口**
+> > （restore_chat 由 `_render` 改为 `v:open()`）；选择当前已打开的会话 → no-op；
+> > `:MaxaChat` 在 continue_last 未设置/false 时**总是打开新会话**（当前默认视图先
+> > close-save 再新建）；预置配置 continue_last 改回默认 false。验证：tests/history 22/22
+> > （新增 history-commands-behavior.lua：restore 开窗/同会话 no-op/:MaxaChat 新会话/
+> > 无 view 新建）、ui 五套/w8/w10/smoke/test-state/lint/check 全绿。
+> >
+> > **2026-08-06 尾部消息整理（MaxaHistory 打开历史会话后的输入整理规则）**：
+> > `M._normalize_restored_tail`（host，纯函数）：① 确保最后一条不是未完成 tool call——
+> > 尾部 assistant 消息的孤儿 tool_call parts 移除，纯 tool-call 消息整条删除（循环至
+> > 尾部不再是 tool-call 形态；中间历史孤儿仍由 restore_agent_loop 注入 cancelled 修复）；
+> > ② 尾部连续空内容用户消息合并为一个空用户消息；③ 整理后最后一条是用户消息 →
+> > 从消息列表移除、文本预填输入缓冲（回车即重发继续对话），否则输入缓冲为空。
+> > restore_chat 在 restore_agent_loop 前整理消息、open 后 `_set_input_text` 预填。
+> > 验证：tests/history 23/23（新增 history-tail-normalize.lua：text+tool_call 保留文本、
+> > 纯 tool-call 删除并提升前序 user、完整工具回合保留、尾部 user 移除并预填、
+> > 连续空 user 合并、restore 集成输入缓冲含预填文本）、ui 五套/w8/w10/smoke/test-state/
+> > lint/check 全绿。
 
 ---
 

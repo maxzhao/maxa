@@ -19,12 +19,18 @@
 ---     `skills.loader` bound to the tool registry loads every discovered skill
 ---     (skill `tools/<name>.lua` declarations register as `<skill>/<name>`);
 ---     startup hooks register through `skills.init.setup_startup_hooks`
----     (registry identity dedup keeps them single-registration).
+---     (registry identity dedup keeps them single-registration);
+---   * history (W4-B) — when `cfg.history.enabled ~= false`: the Phase-4
+---     history service (`history.new`) over the resolved project root
+---     (`<root>/.maxa/history`; never `.supermax/`). No root -> a typed error
+---     on `asm.history_error` and assembly continues (setup stays usable);
+---     construction failures are also recorded non-blocking.
 ---
 --- Returns `{ tool_registry, mcp_registry, mcp_config, mcp_error,
---- skills_state, errors, teardown }`. Assembly failures are NON-BLOCKING:
---- they are recorded in `errors` / `mcp_error` and setup keeps working; only
---- `teardown()` runs deterministic cleanup (mcp stop_all + skill unloads,
+--- skills_state, history, history_error, errors, teardown }`. Assembly
+--- failures are NON-BLOCKING: they are recorded in `errors` / `mcp_error` /
+--- `history_error` and setup keeps working; only `teardown()` runs
+--- deterministic cleanup (mcp stop_all + skill unloads + history dispose,
 --- idempotent).
 ---
 --- This module never loads codecompanion.* / mcphub.* / lua/util/hooks/*
@@ -127,12 +133,17 @@ end
 ---   skills_state = table|nil,  { enabled=true, roots=table[], discover=table,
 ---                              loader=table, loaded=string[], hook_result=table }
 ---                              (nil when skills disabled),
+---   history = table|nil,       Phase-4 history service (W4-B; nil when
+---                              history disabled or no project root),
+---   history_error = table|nil, typed error (no project root / construction
+---                              failed); nil otherwise,
 ---   errors = table[],          non-blocking assembly diagnostics
 ---                              ({ what="mcp"|"skills"|"skills_hooks", ... }),
 ---   teardown = fun(): table    idempotent teardown: mcp stop_all (tools
----                              unregistered) + skill loader unloads; returns
----                              { mcp_stopped=bool, skills_unloaded=int,
----                                failures=table[], already?=bool },
+---                              unregistered) + skill loader unloads + history
+---                              dispose; returns { mcp_stopped=bool,
+---                              skills_unloaded=int, history_disposed=bool,
+---                              failures=table[], already?=bool },
 --- }
 function M.assemble(cfg, opts)
   opts = opts or {}
@@ -145,6 +156,8 @@ function M.assemble(cfg, opts)
     mcp_config = nil,
     mcp_error = nil,
     skills_state = nil,
+    history = nil, -- W4-B: Phase-4 history service (nil when disabled/no root)
+    history_error = nil, -- W4-B: typed error (no project root / construction failed)
     errors = errors,
     teardown = nil,
   }
@@ -223,9 +236,42 @@ function M.assemble(cfg, opts)
   end
 
   -- -------------------------------------------------------------------------
+  -- History assembly (W4-B): the Phase-4 history service over the resolved
+  -- project root (`<root>/.maxa/history`; never `.supermax/`). Opt-in via
+  -- `cfg.history.enabled` (default false) — the default assembly stays inert
+  -- (no service construction, no subscriptions). No project root -> a typed
+  -- error on `asm.history_error` and assembly continues (setup stays usable,
+  -- same non-blocking semantics as MCP).
+  -- -------------------------------------------------------------------------
+  local history_cfg = cfg.history
+  if history_cfg and history_cfg.enabled ~= false then
+    local root, rerr = resolve_project_root(opts)
+    if not root then
+      asm.history_error = rerr
+    else
+      local history_mod = require("maxa.runtime.history")
+      local ok_new, service = pcall(history_mod.new, {
+        root = root,
+        config = history_cfg,
+        events = opts.events or require("maxa.runtime.events"),
+      })
+      if ok_new then
+        asm.history = service
+      else
+        asm.history_error = require("maxa.runtime.schema").new_error(
+          require("maxa.runtime.schema").ERROR.PERSISTENCE,
+          "history assembly failed: " .. tostring(service),
+          { root = root }
+        )
+      end
+    end
+  end
+
+  -- -------------------------------------------------------------------------
   -- Teardown: mcp stop_all (capabilities/tools unregistered by server stop) +
-  -- skill loader unloads (tools unregistered). Idempotent: the second call is
-  -- a no-op returning { already = true }.
+  -- skill loader unloads (tools unregistered) + history dispose (auto-save
+  -- subscriptions removed). Idempotent: the second call is a no-op returning
+  -- { already = true }.
   -- -------------------------------------------------------------------------
   local torn_down = false
   asm.teardown = function()
@@ -233,7 +279,7 @@ function M.assemble(cfg, opts)
       return { already = true }
     end
     torn_down = true
-    local report = { mcp_stopped = false, skills_unloaded = 0, failures = {} }
+    local report = { mcp_stopped = false, skills_unloaded = 0, history_disposed = false, failures = {} }
     if asm.mcp_registry then
       local ok, terr = pcall(function()
         asm.mcp_registry:stop_all()
@@ -254,6 +300,15 @@ function M.assemble(cfg, opts)
         else
           report.failures[#report.failures + 1] = { what = "skills", id = id, error = tostring(uerr) }
         end
+      end
+    end
+    -- W4-B: history service dispose (auto-save subscriptions removed; safe
+    -- when the service has no listeners). Best-effort, recorded in the report.
+    if asm.history and type(asm.history.dispose) == "function" then
+      local okd, derr = pcall(asm.history.dispose, asm.history)
+      report.history_disposed = okd
+      if not okd then
+        report.failures[#report.failures + 1] = { what = "history", error = tostring(derr) }
       end
     end
     return report

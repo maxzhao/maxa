@@ -30,7 +30,7 @@ return {
     name = "maxa",
     dir = repo_root .. "/lua/maxa", -- minimal source carrier; runtime modules live here
     lazy = true,
-    cmd = { "MaxaChat", "MaxaStop", "MaxaClose", "MaxaClear", "MaxaProvider", "MaxaModel" },
+    cmd = { "MaxaChat", "MaxaStop", "MaxaClose", "MaxaClear", "MaxaProvider", "MaxaModel", "MaxaSave", "MaxaHistory" },
     keys = { {
       "<leader>mx",
       "<cmd>MaxaChat<cr>",
@@ -74,6 +74,17 @@ return {
             request = { timeout_ms = 60000, connect_timeout_ms = 10000, retries = 0 },
           },
         },
+      },
+      --- 阶段4 会话历史（2026-08-06 人工验证已预置开启）：
+      ---   * enabled：总开关；true 时运行时装配构造 history 服务，`:MaxaSave`/`:MaxaHistory`
+      ---     生效，auto_save（回复/工具批/soft-stop/close 完成时落盘）默认开启。
+      ---   * continue_last：保持默认 false —— `:MaxaChat` 总是打开新会话；历史会话经
+      ---     `:MaxaHistory` 选择打开（选中即立即显示；当前会话已是选中历史则 no-op）。
+      ---     需要"重开即续聊"的项目自行设 `continue_last = true`。
+      ---   * title_provider/expiration_days/title_generation_opts 保持默认
+      ---     （"auto"=LLM 生成失败回退首条用户消息；expiration_days=0 不清理）。
+      history = {
+        enabled = true,
       },
     },
     config = function(_, opts)

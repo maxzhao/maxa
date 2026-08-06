@@ -5,7 +5,11 @@
 --- provides the minimal runnable Chat surface on top of the phase-0
 --- `session` + `orchestrator` + `protocol` + `events` modules. It supports:
 ---
----   `:MaxaChat`   open (or focus) the Chat window pair
+---   `:MaxaChat`   open a NEW Chat session window (W4-B semantics: with
+---                 history.continue_last unset/false this always creates a fresh
+---                 session — the current default view is closed first, so its
+---                 close-save persists; with continue_last=true a brand-new
+---                 default view restores the most recent saved chat instead)
 ---   :MaxaStop     cancel the in-flight provider stream/tool batch (hard cancel;
 ---                 terminal cancelled, no continuation marker — old semantics kept)
 ---   :MaxaSoftStop drain the current response/tool batch, then suppress
@@ -19,6 +23,14 @@
 ---                 resolve through the effective LazyVim opts config + protocol adapters)
 ---   :MaxaModel    switch display model label (default "mock-model")
 ---   :MaxaClear    clear the rendered messages (keeps session + current provider/model)
+---   :MaxaSave     (W4-B) save the current default view's session to project
+---                 history via the Phase-4 history service (optional save_id);
+---                 history disabled -> WARN notify; no open view -> WARN notify
+---   :MaxaHistory  (W4-B) open a picker over saved chats (optional filter on
+---                 title/model), sorted by updated_at desc; choosing an entry
+---                 opens that saved chat IMMEDIATELY (restore + open window);
+---                 when the active chat already IS the selected session the
+---                 choice is a no-op; history disabled -> WARN notify
 ---
 --- It is a pure *consumer* of the shared phase-0 contracts (§4 of the plan). It
 --- does NOT reimplement the state machine (session/orchestrator own that) and it
@@ -28,6 +40,19 @@
 --- (effective config = lua/maxa defaults + LazyVim opts), binds the protocol adapter,
 --- and hands the orchestrator pre-built adapter params (flattened timeouts + anthropic
 --- url/headers).
+---
+--- W4-B history wiring (opt-in, inert when disabled): `maxa.setup` hands the
+--- assembled Phase-4 history service to `set_defaults({ history = ...,
+--- history_config = ... })` ONLY when `history.enabled`. The host then:
+---   * composes durable snapshots from existing public APIs only
+---     (orch/session:snapshot()/stack:to_table()) — no orchestrator changes;
+---   * wires the service's auto-save `snapshot_provider` and `listen()` once per
+---     service (re-listen after dispose re-subscribes);
+---   * saves explicitly on `View:close()` BEFORE destroying the session (the
+---     runtime has no chat.closed emitter, so close-save is deterministic);
+---   * restores via `restore_agent_loop` (`:MaxaHistory` choice and
+---     `continue_last` on a fresh `:MaxaChat` default view), rebinding the
+---     save_id + trace membership so later saves keep the SAME save_id.
 ---
 --- Design notes:
 ---   * `submit(text, opts)` is UI-independent: it works headlessly (no window pair
@@ -91,15 +116,19 @@ M.INPUT_NS = vim.api.nvim_create_namespace("maxa.chat.input")
 M.KEYMAPS = {
   { buf = "chat", mode = "i", keys = "<CR>", desc = "submit chat input", fn = "_submit_from_input" },
   { buf = "chat", mode = "n", keys = "<CR>", desc = "submit chat input", fn = "_submit_from_input" },
-  { buf = "chat", mode = "i", keys = "<C-c>", desc = "cancel in-flight stream", fn = "stop" },
+  -- LazyVim habits: <C-c> stops the session (insert + normal), q closes the
+  -- chat view and destroys the session (close-save persists first). The chat
+  -- buffer is a nofile scratch buffer, so q's default macro-recording role is
+  -- not meaningful here (no conflict; :MaxaClose remains as the Ex command).
+  { buf = "chat", mode = "i", keys = "<C-c>", desc = "stop in-flight stream (cancel)", fn = "stop" },
+  { buf = "chat", mode = "n", keys = "<C-c>", desc = "stop in-flight stream (cancel)", fn = "stop" },
   { buf = "chat", mode = "i", keys = "<C-s>", desc = "soft-stop after current response/tools", fn = "soft_stop" },
   { buf = "chat", mode = "i", keys = "<C-g>", desc = "show keymap help", fn = "_show_keymap_help" },
   { buf = "chat", mode = "i", keys = "<Up>", desc = "recall older input", fn = "_history_nav", args = { -1 } },
   { buf = "chat", mode = "i", keys = "<Down>", desc = "recall newer input", fn = "_history_nav", args = { 1 } },
   { buf = "chat", mode = "v", keys = "ga", desc = "attach visual selection to input", fn = "_attach_selection" },
-  { buf = "chat", mode = "n", keys = "q", desc = "stop in-flight stream", fn = "stop" },
+  { buf = "chat", mode = "n", keys = "q", desc = "close chat view (close-save)", fn = "close" },
   { buf = "chat", mode = "n", keys = "gs", desc = "soft-stop after current response/tools", fn = "soft_stop" },
-  { buf = "chat", mode = "n", keys = "<C-c>", desc = "close chat view", fn = "close" },
   { buf = "chat", mode = "n", keys = "gx", desc = "clear chat messages", fn = "clear" },
   { buf = "chat", mode = "n", keys = "]]", desc = "next message header", fn = "_goto_header", args = { 1 } },
   { buf = "chat", mode = "n", keys = "[[", desc = "previous message header", fn = "_goto_header", args = { -1 } },
@@ -124,10 +153,25 @@ M.DEFAULT_LAYOUT = "vertical"
 -- (e.g. `_get_default()`); nil keeps the legacy injected-only behavior.
 M.DEFAULT_TOOL_REGISTRY = nil
 
+-- W4-B: the Phase-4 history service + its config section (set by maxa.setup
+-- via set_defaults ONLY when history.enabled; nil keeps every history path
+-- inert — :MaxaSave/:MaxaHistory still exist and notify "history disabled").
+M._history = nil
+M._history_config = nil
+-- Host-side listen guard: one auto-save subscription per service instance.
+-- set_defaults resets it so a dispose + re-set re-subscribes (service:listen()
+-- itself is idempotent per instance).
+M._history_listening = false
+-- Restore-in-progress guard: continue_last must not re-trigger while the
+-- restore flow itself rebuilds the default view (recursion safety).
+M._restoring = false
+
 --- Override the view defaults from the maxa config.
 --- Called by `require("maxa").setup`; keeps host free of a maxa/init circular require.
 ---@param opts? table { provider?: string, model?: string, show_reasoning?: boolean, layout?: string,
----   tool_registry?: table|nil assembled tool registry (W1) }
+---   tool_registry?: table|nil assembled tool registry (W1),
+---   history?: table|nil Phase-4 history service (W4-B; nil when disabled),
+---   history_config?: table|nil effective history config section (W4-B) }
 ---@return table self
 function M.set_defaults(opts)
   opts = opts or {}
@@ -146,7 +190,157 @@ function M.set_defaults(opts)
   if opts.tool_registry ~= nil then
     M.DEFAULT_TOOL_REGISTRY = opts.tool_registry
   end
+  -- W4-B: history service + config. NOTE: Lua table literals with nil values
+  -- do not create keys, so a nil-value `history` field is indistinguishable
+  -- from an absent one — production maxa.setup simply OMITS the key when
+  -- history is disabled, which leaves the boot-time nil untouched. The listen
+  -- guard resets on every (re)set so the (idempotent) service:listen()
+  -- re-subscribes after a dispose + re-set.
+  if opts.history ~= nil then
+    M._history = opts.history
+    M._history_listening = false
+  end
+  if opts.history_config ~= nil then
+    M._history_config = opts.history_config
+  end
+  if M._setup_done then
+    M._ensure_history_listening()
+  end
   return M
+end
+
+---------------------------------------------------------------------------
+-- W4-B history helpers (host-side composition; no orchestrator changes)
+---------------------------------------------------------------------------
+
+---@private W4-B: compose a durable history snapshot for a view's orchestrator
+--- using ONLY existing public APIs (orch/session:snapshot()/stack:to_table()).
+--- The Phase-4 service envelope then round-trips `runtime_state` verbatim —
+--- it carries the FULL Session:snapshot() shape (id/project_id/generation/
+--- state/active ids/loop/views), so a later restore can rebuild session + loop
+--- + messages. Returns nil when the view has no session or no messages
+--- (nothing to save: auto-save/close-save/:MaxaSave all skip empty sessions).
+---@param view table view instance
+---@return table|nil snapshot
+local function view_durable_snapshot(view)
+  if not view or view:_is_closed_view() then
+    return nil
+  end
+  local orch = view.orch
+  if not orch or not orch.session or not orch.messages or not orch.messages.iter then
+    return nil
+  end
+  local messages = orch.messages:to_table()
+  if #messages == 0 then
+    return nil
+  end
+  local session = orch.session
+  local protocol_id = (orch.provider_record and orch.provider_record.protocol)
+    or (orch.provider and orch.provider.protocol)
+    or "mock"
+  local snapshot = {
+    session_id = session.id,
+    project_id = session.project_id,
+    generation = session.generation,
+    provider_id = view.provider_name or "mock",
+    protocol = protocol_id,
+    model = view.model or orch.model or "mock-model",
+    title = nil, -- title generation is a service concern (title_provider)
+    messages = messages,
+    context_items = {},
+    usage = view.usage,
+    status_snapshot = {
+      state = session.state,
+      running = orch:is_busy(),
+      terminal = {},
+    },
+    -- Full Session:snapshot() shape: bundle.runtime_state round-trips it, so
+    -- the restore flow calls Session:restore(bundle.runtime_state) directly.
+    runtime_state = session:snapshot(),
+  }
+  -- Trace membership: the service-side mapping (set by bind_trace on restore)
+  -- survives auto-save/close-save round-trips; untracked sessions stay nil.
+  local hist = M._history
+  if hist and type(hist.trace_for) == "function" then
+    local tr = hist:trace_for(session.id)
+    if tr then
+      snapshot.trace = tr
+    end
+  end
+  return snapshot
+end
+
+---@private W4-B: project the restored message stack into the view's display
+--- items (role/text/reasoning/tool_calls) so the Chat buffer shows the
+--- restored conversation. Read-only projection of persisted content parts.
+---@param view table view instance
+local function sync_view_items(view)
+  local items = {}
+  local stack = view.orch and view.orch.messages
+  if stack and stack.iter then
+    for msg in stack:iter() do
+      local item = { role = msg.role, text = "", reasoning = "", tool_calls = {} }
+      if type(msg.content) == "table" then
+        for _, part in ipairs(msg.content) do
+          if part.type == "text" then
+            if item.text == "" then
+              item.text = part.text or ""
+            else
+              item.text = item.text .. "\n" .. (part.text or "")
+            end
+          elseif part.type == "reasoning" then
+            if item.reasoning == "" then
+              item.reasoning = part.content or ""
+            else
+              item.reasoning = item.reasoning .. "\n" .. (part.content or "")
+            end
+          elseif part.type == "tool_call" then
+            item.tool_calls[#item.tool_calls + 1] = {
+              call_id = part.call_id,
+              name = part.name or "?",
+              status = "completed",
+            }
+          end
+        end
+      end
+      items[#items + 1] = item
+    end
+  end
+  view.items = items
+  view.errors = {}
+end
+
+---@private W4-B: relative-time label for the :MaxaHistory picker entries.
+---@param t any updated_at timestamp (seconds)
+---@return string
+local function format_relative_time(t)
+  if type(t) ~= "number" then
+    return "?"
+  end
+  local diff = os.time() - t
+  if diff < 60 then
+    return "just now"
+  elseif diff < 3600 then
+    return string.format("%dm", math.floor(diff / 60))
+  elseif diff < 86400 then
+    return string.format("%dh", math.floor(diff / 3600))
+  end
+  return string.format("%dd", math.floor(diff / 86400))
+end
+
+---@private W4-B: unsavable save_id predicate (defensive; delegates to the
+--- history ids module when loaded, falls back to the documented "/"-encoding).
+---@param save_id string|nil
+---@return boolean
+local function is_unsavable_save_id(save_id)
+  if type(save_id) ~= "string" or save_id == "" then
+    return false
+  end
+  local ok, ids = pcall(require, "maxa.runtime.history.ids")
+  if ok and type(ids) == "table" and type(ids.is_unsavable_save_id) == "function" then
+    return ids.is_unsavable_save_id(save_id)
+  end
+  return save_id:find("/", 1, true) ~= nil
 end
 
 -- UI text labels.
@@ -427,6 +621,10 @@ M._default = nil
 function M._get_default()
   if not M._default or M._default:_is_closed_view() then
     M._default = M.new()
+    -- W4-B: continue_last — a FRESH default view (no prior session) restores
+    -- the most recently saved chat when history is enabled and configured.
+    -- Inert when disabled (nil service / continue_last=false / no entry).
+    M._maybe_continue_last(M._default)
   end
   return M._default
 end
@@ -1364,6 +1562,21 @@ end
 ---@return boolean changed
 function View:close()
   local changed = false
+  -- W4-B: deterministic close-time save BEFORE the session is destroyed. The
+  -- runtime has no chat.closed emitter (the service's chat.closed subscription
+  -- cannot fire), so the host saves explicitly — this is what makes
+  -- save -> close -> reopen continuity work. Snapshot reads orch + session
+  -- while they are still alive; unsavable (scratch) sessions and sessions
+  -- without messages are skipped (nothing durable to write).
+  if M._history and M._history.config and M._history.config.auto_save and self.status ~= "closed" then
+    local sid = self.orch and self.orch.session and self.orch.session.id
+    if sid and not is_unsavable_save_id(M._history:current_save_id(sid)) then
+      local snapshot = view_durable_snapshot(self)
+      if snapshot then
+        M._history:save(snapshot)
+      end
+    end
+  end
   if self.status ~= "closed" then
     changed = self.orch:close() or changed
   end
@@ -1879,6 +2092,18 @@ end
 --- Open the default Chat view (used by `:MaxaChat`).
 ---@return table view
 function M.open()
+  -- :MaxaChat 语义（W4-B fix）：continue_last 未设置或 false 时，总是打开一个
+  -- 新会话窗口（当前默认视图先 close——close-save 保护已提交消息落盘）。
+  -- continue_last=true 时保留原有 open-or-focus + 新视图恢复最近会话的行为。
+  local hcfg = M._history_config
+  local continue_last = hcfg and hcfg.continue_last == true
+  if not continue_last then
+    local cur = M._default
+    if cur and not cur:_is_closed_view() then
+      cur:close()
+      M._default = nil
+    end
+  end
   local v = M._get_default()
   v:open()
   return v
@@ -1936,6 +2161,384 @@ function M.close()
     return false
   end
   return v:close()
+end
+
+---------------------------------------------------------------------------
+-- W4-B history operations (module level): :MaxaSave / :MaxaHistory /
+-- continue_last / auto-save wiring. ALL paths are inert when history is
+-- disabled (nil service) — commands exist and notify instead.
+---------------------------------------------------------------------------
+
+--- W4-B: continue_last hook (called from M._get_default on a fresh default
+--- view). Restores the most recently saved chat ONLY when history is enabled
+--- AND history_config.continue_last AND the view is brand-new AND an entry
+--- exists. M._restoring guards the recursion: the restore flow itself
+--- rebuilds the default view, which must not re-trigger continue_last.
+---@param view table freshly created default view
+function M._maybe_continue_last(view)
+  if M._restoring then
+    return
+  end
+  local hist = M._history
+  if not hist then
+    return
+  end
+  local hcfg = M._history_config
+  if not (hcfg and hcfg.continue_last) then
+    return
+  end
+  if not view or (view.items and #view.items > 0) then
+    return -- not a fresh session
+  end
+  local last = hist:get_last_chat()
+  if not last or not last.save_id then
+    return -- no saved chat (unreadable index is non-blocking here)
+  end
+  M._restoring = true
+  local ok, err = pcall(M.restore_chat, last.save_id)
+  M._restoring = false
+  if not ok then
+    vim.notify(("MaxaHistory: continue_last restore failed: %s"):format(tostring(err)), vim.log.levels.ERROR)
+  end
+end
+
+--- W4-B: wire the auto-save snapshot provider + service listen exactly once
+--- per service instance. set_defaults resets the guard so a dispose + re-set
+--- re-subscribes (service:listen() itself is idempotent per instance). All
+--- history wiring stays inert when disabled (nil service).
+function M._ensure_history_listening()
+  local hist = M._history
+  if not hist or M._history_listening then
+    return
+  end
+  if type(hist.listen) ~= "function" then
+    return
+  end
+  -- Host-owned snapshot composition: the default view's orchestrator + session
+  -- (existing public APIs only). Nil when no default view or the payload
+  -- session does not match the default view's session (auto-save scoping).
+  hist.snapshot_provider = function(session_id)
+    local v = M._default
+    if not v or v:_is_closed_view() then
+      return nil
+    end
+    local orch = v.orch
+    if not orch or not orch.session or orch.session.id ~= session_id then
+      return nil
+    end
+    return view_durable_snapshot(v)
+  end
+  hist:listen()
+  M._history_listening = true
+end
+
+--- W4-B: save the current default view's session (`:MaxaSave`).
+---@param save_id? string explicit durable save_id (optional)
+---@return table|nil result history save result (nil when not saved)
+function M.save_current(save_id)
+  local hist = M._history
+  if not hist then
+    vim.notify("MaxaSave: history disabled (set history.enabled=true)", vim.log.levels.WARN)
+    return nil
+  end
+  local v = M._default
+  if not v or v:_is_closed_view() then
+    vim.notify("MaxaSave: no open Chat session to save", vim.log.levels.WARN)
+    return nil
+  end
+  local snapshot = view_durable_snapshot(v)
+  if not snapshot then
+    vim.notify("MaxaSave: nothing to save (empty session)", vim.log.levels.INFO)
+    return nil
+  end
+  local res = hist:save(snapshot, { save_id = save_id })
+  if res and res.ok then
+    vim.notify(("MaxaSave: saved %s (session %s)"):format(res.save_id, snapshot.session_id), vim.log.levels.INFO)
+  else
+    vim.notify(
+      ("MaxaSave: save failed (%s): %s"):format(res and res.code or "?", res and res.error or "?"),
+      vim.log.levels.ERROR
+    )
+  end
+  return res
+end
+
+--- W4-B: picker over saved chats (`:MaxaHistory`). Entries sorted by
+--- updated_at desc; an optional filter matches title/model (case-insensitive
+--- substring). Choosing an entry restores it via M.restore_chat.
+---@param filter? string|nil optional title/model filter
+function M.history_picker(filter)
+  local hist = M._history
+  if not hist then
+    vim.notify("MaxaHistory: history disabled (set history.enabled=true)", vim.log.levels.WARN)
+    return
+  end
+  local list = {}
+  for _, e in pairs(hist:list()) do
+    list[#list + 1] = e
+  end
+  table.sort(list, function(a, b)
+    return (a.updated_at or 0) > (b.updated_at or 0)
+  end)
+  if filter and filter ~= "" then
+    local needle = tostring(filter):lower()
+    local filtered = {}
+    for _, e in ipairs(list) do
+      local title = tostring(e.title or "")
+      local model = tostring(e.model or "")
+      if title:lower():find(needle, 1, true) or model:lower():find(needle, 1, true) then
+        filtered[#filtered + 1] = e
+      end
+    end
+    list = filtered
+  end
+  if #list == 0 then
+    vim.notify(
+      "MaxaHistory: no saved chats" .. ((filter and filter ~= "") and (" matching " .. filter) or ""),
+      vim.log.levels.INFO
+    )
+    return
+  end
+  vim.ui.select(list, {
+    prompt = "maxa saved chats",
+    format_item = function(e)
+      local title = (type(e.title) == "string" and e.title ~= "") and e.title or "Untitled"
+      return ("%s  ·  %s  ·  %d msgs  ·  %s"):format(
+        title,
+        e.model or "?",
+        e.message_count or 0,
+        format_relative_time(e.updated_at)
+      )
+    end,
+  }, function(choice)
+    if choice and choice.save_id then
+      M.restore_chat(choice.save_id)
+    end
+  end)
+end
+
+--- 历史会话打开后的尾部消息整理（MaxaHistory 恢复语义；纯函数，headless 可测）：
+---   1. 确保最后一条消息不是未完成的 tool call：尾部 assistant 消息中的
+---      孤儿 tool_call parts 被移除；若该消息因此无任何内容则整条删除
+---      （循环直到最后一条不再是 tool-call 形态）；
+---   2. 尾部连续的空内容用户消息合并为一个空用户消息；
+---   3. 若整理后最后一条是用户消息：从消息列表移除，返回其文本内容作为
+---      输入缓冲预填（用户回车即重发该消息继续对话）；否则输入缓冲为空。
+---@param messages table[] 归一化消息数组（conversation Stack:to_table 输出形状）
+---@return table result { messages=table[], input=string|nil }
+function M._normalize_restored_tail(messages)
+  local msgs = vim.deepcopy(messages or {})
+
+  -- 1. 清理尾部孤儿 tool call（最后一条 assistant 消息的 tool_call parts）。
+  while #msgs > 0 do
+    local last = msgs[#msgs]
+    if type(last) ~= "table" or last.role ~= "assistant" then
+      break
+    end
+    local has_call = false
+    for _, part in ipairs(last.content or {}) do
+      if type(part) == "table" and part.type == "tool_call" then
+        has_call = true
+        break
+      end
+    end
+    if not has_call then
+      break
+    end
+    local kept = {}
+    for _, part in ipairs(last.content or {}) do
+      if not (type(part) == "table" and part.type == "tool_call") then
+        kept[#kept + 1] = part
+      end
+    end
+    if #kept == 0 then
+      table.remove(msgs) -- 纯 tool-call 消息整条删除，继续检查新的最后一条
+    else
+      last.content = kept -- 保留文本/reasoning，仅移除 tool_call parts
+      break
+    end
+  end
+
+  -- 2. 尾部连续空用户消息合并为一个空用户消息。
+  local n = #msgs
+  local start = n
+  while start >= 1 and msgs[start].role == "user" and #(msgs[start].content or {}) == 0 do
+    start = start - 1
+  end
+  if n - start >= 2 then
+    for i = n, start + 2, -1 do
+      table.remove(msgs, i)
+    end
+  end
+
+  -- 3. 最后一条是用户消息 -> 从列表移除，内容作为输入缓冲预填。
+  local input = nil
+  local last = msgs[#msgs]
+  if last and last.role == "user" then
+    local text_parts = {}
+    for _, part in ipairs(last.content or {}) do
+      if type(part) == "table" and part.type == "text" and type(part.text) == "string" and part.text ~= "" then
+        text_parts[#text_parts + 1] = part.text
+      end
+    end
+    input = #text_parts > 0 and table.concat(text_parts, "\n") or ""
+    table.remove(msgs)
+  end
+
+  return { messages = msgs, input = input }
+end
+
+---@private 预填输入缓冲（输入区 = render_end+1 行 header，其后为用户内容行）。
+--- 空文本等价于空输入框（清空内容区，保留 header）。
+---@param text string|nil 预填文本（多行按 \n 展开）
+function View:_set_input_text(text)
+  local buf = self._buf
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+  local render_end = self._render_end or 0
+  local lines = { "" }
+  if type(text) == "string" and text ~= "" then
+    lines = {}
+    for line in text:gmatch("([^\n]*)\n?") do
+      lines[#lines + 1] = line
+    end
+    if #lines == 0 then
+      lines[1] = ""
+    end
+  end
+  vim.api.nvim_buf_set_lines(buf, render_end + 1, -1, false, lines)
+  self:_refresh_input_intro()
+end
+
+--- W4-B: restore a saved chat into the default view (`:MaxaHistory` choice and
+--- continue_last). Flow (evidence: close parent then create child):
+---   0. when the CURRENT default view is already the requested saved chat
+---      (bound save_id match), do nothing (MaxaHistory no-op semantics);
+---   1. bundle = history:restore_bundle(save_id);
+---   2. an existing open default view is closed FIRST (View:close destroys its
+---      session and performs the deterministic close-save);
+---   3. a fresh default view is created and the bundle provider record + model
+---      are applied (an unavailable provider keeps the mock; the bundle model
+---      label still applies);
+---   4. orch:restore_agent_loop({ session = bundle.runtime_state, messages =
+---      bundle.messages }) rebuilds session/loop/messages, repairs orphan tool
+---      calls, and parks at waiting_for_user — the restore request itself is
+---      the ONLY provider request (no automatic continuation);
+---   5. view items sync from the restored stack; the title is kept;
+---      history:bind(session_id, save_id) + history:bind_trace(session_id,
+---      bundle.trace) rebind so later auto-save/close-save write the SAME
+---      save_id and carry the same trace membership;
+---   6. v:open() shows the restored chat IMMEDIATELY (fix: previously only
+---      _render ran, leaving the restored view unopened so the next :MaxaChat
+---      surfaced it as if it were a new session).
+---@param save_id string
+---@return table|nil view restored default view (nil on failure / no-op)
+function M.restore_chat(save_id)
+  local hist = M._history
+  if not hist then
+    vim.notify("MaxaHistory: history disabled (set history.enabled=true)", vim.log.levels.WARN)
+    return nil
+  end
+  -- MaxaHistory no-op: the active chat already IS the selected saved session.
+  local active = M._default
+  if active and not active:_is_closed_view() and active.orch and active.orch.session then
+    local active_save = hist:current_save_id(active.orch.session.id)
+    if active_save == save_id then
+      vim.notify(("MaxaHistory: %s is already the active session"):format(tostring(save_id)), vim.log.levels.INFO)
+      return nil
+    end
+  end
+  local bundle, berr = hist:restore_bundle(save_id)
+  if not bundle then
+    vim.notify(
+      ("MaxaHistory: restore %s failed: %s"):format(tostring(save_id), berr and berr.message or "not found"),
+      vim.log.levels.ERROR
+    )
+    return nil
+  end
+  -- Close the current default view first (its close-save persists the latest
+  -- state; the restored chat then becomes the active default view).
+  local cur = M._default
+  if cur and not cur:_is_closed_view() then
+    cur:close()
+  end
+  M._default = nil
+  local v = M._get_default() -- fresh view; M._restoring guards continue_last
+  -- Apply the bundle provider (built-in mock/echo first, then config record;
+  -- mirrors M.new/set_provider resolution).
+  local provider_id = bundle.provider_id or "mock"
+  local provider, record, params = resolve_provider_for_view(provider_id)
+  if record then
+    v.orch:use_provider_record(record, { params = params })
+    v.provider_name = provider_id
+    v.provider = v.orch.provider
+  elseif provider then
+    v.orch:use_provider(provider)
+    v.provider_name = provider_id
+    v.provider = provider
+  else
+    -- Provider unavailable: keep the mock; the bundle model label still applies.
+    vim.notify(
+      ("MaxaHistory: provider %q unavailable; keeping mock"):format(tostring(provider_id)),
+      vim.log.levels.WARN
+    )
+  end
+  -- The bundle model label applies either way (before the restore request).
+  v.model = bundle.model or v.model
+  v.orch.model = v.model
+  -- Tail normalization (MaxaHistory semantics): ensure the last message is not
+  -- an unfinished tool call (orphan tool_call parts removed / pure call message
+  -- dropped), merge trailing empty user messages, and lift a trailing user
+  -- message out of the list so it becomes the pre-filled input buffer (Enter
+  -- re-sends it). The normalized list is what the restored session carries.
+  local tail = M._normalize_restored_tail(bundle.messages)
+  -- Idle-boundary normalization (MaxaHistory resilience): a snapshot saved
+  -- while its request was in flight — or a close-save racing a running
+  -- request — carries state=busy with dangling active ids. restore_agent_loop
+  -- requires an idle boundary (ready|waiting_for_user), so normalize any
+  -- non-idle state to waiting_for_user and drop the stale active ids. The
+  -- persisted messages are still shown and the chat gets focus; a snapshot
+  -- saved mid-request simply resumes as an idle conversation (no phantom
+  -- request is replayed).
+  local runtime_state = bundle.runtime_state
+  if
+    type(runtime_state) == "table"
+    and runtime_state.state ~= "ready"
+    and runtime_state.state ~= "waiting_for_user"
+  then
+    runtime_state = vim.deepcopy(runtime_state)
+    runtime_state.state = "waiting_for_user"
+    runtime_state.active_request_id = nil
+    runtime_state.active_tool_batch_id = nil
+  end
+  -- Rebuild session + loop + messages (orphan tool calls repaired; the loop
+  -- parks at waiting_for_user with no automatic continuation).
+  local rres = v.orch:restore_agent_loop({ session = runtime_state, messages = tail.messages })
+  if rres and rres.rejected then
+    vim.notify(
+      ("MaxaHistory: restore %s rejected: %s"):format(tostring(save_id), rres.error and rres.error.message or "?"),
+      vim.log.levels.ERROR
+    )
+    return nil
+  end
+  -- Title + view projection of the restored conversation.
+  v._history_title = bundle.title or nil
+  sync_view_items(v)
+  -- Rebind save_id + trace membership: subsequent auto-save/close-save write
+  -- the SAME save_id (and carry the same trace) — close/reopen continuity.
+  hist:bind(bundle.session_id, bundle.save_id)
+  hist:bind_trace(bundle.session_id, bundle.trace)
+  -- Show the restored chat immediately (open() also binds the render buffer,
+  -- initializes the input area and renders; _render alone left the view
+  -- unopened, which made the next :MaxaChat surface the restored session).
+  v:open()
+  -- Pre-fill the input buffer with the lifted trailing user message (Enter
+  -- re-sends it and continues the conversation); empty/nil leaves it blank.
+  if type(tail.input) == "string" and tail.input ~= "" then
+    v:_set_input_text(tail.input)
+  end
+  return v
 end
 
 --- Best-effort runtime teardown for nvim exit (W8; `VimLeavePre` hook). Every
@@ -2016,6 +2619,24 @@ function M.setup()
       v:_pick_model()
     end
   end, { desc = "maxa: set display model label (no arg: interactive input)", nargs = "*" })
+  -- W4-B history commands: exist ALWAYS (also when history is disabled); the
+  -- callbacks notify "history disabled" instead of acting. Optional args:
+  -- :MaxaSave [save_id] / :MaxaHistory [filter].
+  vim.api.nvim_create_user_command("MaxaSave", function(a)
+    M.save_current(a.args ~= "" and a.args or nil)
+  end, {
+    desc = "maxa: save the current Chat session to project history (optional save_id)",
+    nargs = "*",
+  })
+  vim.api.nvim_create_user_command("MaxaHistory", function(a)
+    M.history_picker(a.args ~= "" and a.args or nil)
+  end, {
+    desc = "maxa: list saved chats and restore one (optional title/model filter)",
+    nargs = "*",
+  })
+  -- W4-B: if the history service was injected before setup ran (tests), wire
+  -- the auto-save snapshot provider + listen now.
+  M._ensure_history_listening()
 end
 
 -- Register commands on load so `:MaxaChat` exists whenever this module is required.
