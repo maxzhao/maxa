@@ -57,9 +57,11 @@ test-protocol-unit: (setup)
 # Headless W3 config verification: LazyVim opts merge/validation (defaults +
 # user opts), provider cross-field checks (default existence, protocol capability
 # matrix), credential guard, resolve_provider normalization + adapter bind
-# interface, state.yaml round-trip. Offline; no network or key.
+# interface, state.yaml round-trip. W5/W6 also runs the ui/status sub-block
+# checks and the orchestrator sub-block wiring (defaults + fail-closed +
+# host consumption). Offline; no network or key.
 test-config: (setup)
-    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/config/verify.lua' local ok,res=pcall(dofile,d) if not (ok and res) then vim.cmd('cq') return end vim.cmd('qa!') end, 2000)"
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local ok=true for _,d in ipairs({'{{root}}/tests/config/verify.lua','{{root}}/tests/config/verify-ui-status.lua','{{root}}/tests/config/verify-orchestrator.lua'}) do local r,e=pcall(dofile,d) print('CONFIG_FILE', d, r) if not r then print(tostring(e)) ok=false end end vim.cmd(ok and 'qa!' or 'cq') end, 3000)"
 
 # Headless phase-2 R-STATE fixture runner (W2 test base): discovers and runs
 # every fixture under tests/state/ (entities + clock determinism), asserts the
@@ -128,6 +130,41 @@ test-ui-status: (setup)
 # into host view defaults. Offline; no network or key.
 test-ui-config: (setup)
     NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/ui/config.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
+# Headless phase-5 W1 event-bus fixture runner (tests/events): complete envelope
+# (event_id/per-session sequence/identity fields), transactional reducers,
+# idempotent replay, observer isolation and backward compatibility.
+# Offline; no network or key.
+test-events: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/events/runner.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
+# Headless phase-5 W2 status/spine fixture runner (tests/status): immutable spine
+# reducer (S-001 counts/provider/model/usage/terminal), lualine read-only
+# projection (S-002), spinner phase precedence + delay, billing failure isolation
+# and deleted-view safety. Offline; no network or key.
+test-status: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/status/runner.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
+# Headless phase-5 W4 Action/Command registry fixture runner (tests/actions):
+# register/discover/dispatch contract, duplicate-hash rejection, requires_idle
+# gating, typed failures (never lock the Chat) and built-in operation families
+# over mock contexts. Offline; no network or key.
+test-actions: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/actions/runner.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
+# Headless phase-5 W5 prompt-composer fixture runner (tests/prompts): bundled
+# fallback (C-001), .maxa/system.md override + placeholder expansion (C-002),
+# skill SYSTEM slots (C-003), dump consistency and (integration) schema-version
+# classification (C-004). Offline; no network or key.
+test-prompts: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/prompts/runner.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
+
+# Headless phase-5 W6 wiring validation (tests/host/phase5-wiring.lua): real
+# maxa.setup assembles the status spine service and Action/Command registry;
+# palette dispatch and typed failures keep the Chat usable.
+# Offline; no network or key.
+test-phase5-wiring: (setup)
+    NVIM_APPNAME=nvim-maxa nvim --headless -c "lua vim.defer_fn(function() local d='{{root}}/tests/host/phase5-wiring.lua' local ok=pcall(dofile,d) vim.cmd(ok and 'qa!' or 'cq') end, 2000)"
 
 # stylua check
 lint:

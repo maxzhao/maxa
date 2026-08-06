@@ -30,12 +30,50 @@ return {
     name = "maxa",
     dir = repo_root .. "/lua/maxa", -- minimal source carrier; runtime modules live here
     lazy = true,
-    cmd = { "MaxaChat", "MaxaStop", "MaxaClose", "MaxaClear", "MaxaProvider", "MaxaModel", "MaxaSave", "MaxaHistory" },
-    keys = { {
-      "<leader>mx",
-      "<cmd>MaxaChat<cr>",
-      desc = "maxa: open chat",
-    } },
+    cmd = {
+      "MaxaChat",
+      "MaxaStop",
+      "MaxaSoftStop",
+      "MaxaContextStop",
+      "MaxaClose",
+      "MaxaClear",
+      "MaxaProvider",
+      "MaxaModel",
+      "MaxaSave",
+      "MaxaHistory",
+      "MaxaActions",
+      -- W3 view lifecycle commands (host registers them; lazy placeholders let
+      -- the plugin load lazily when one of these is used first).
+      "MaxaHide",
+      "MaxaReattach",
+      "MaxaContext",
+    },
+    keys = {
+      {
+        "<leader>mx",
+        "<cmd>MaxaChat<cr>",
+        desc = "maxa: open chat",
+      },
+      -- W3/W6 (phase-5): global view-lifecycle + palette entries. These are
+      -- GLOBAL keys because `gh`/`gc`/`gA` are chat-buffer-local and become
+      -- unreachable once the window is hidden (`gh`). `<leader>mr` restores
+      -- the SAME session after hide; `<leader>mh` hides again.
+      {
+        "<leader>mh",
+        "<cmd>MaxaHide<cr>",
+        desc = "maxa: hide chat window (keep session)",
+      },
+      {
+        "<leader>mr",
+        "<cmd>MaxaReattach<cr>",
+        desc = "maxa: reattach chat view (same session)",
+      },
+      {
+        "<leader>ma",
+        "<cmd>MaxaActions<cr>",
+        desc = "maxa: actions palette",
+      },
+    },
     dependencies = {
       "nvim-lua/plenary.nvim",
       "folke/snacks.nvim",

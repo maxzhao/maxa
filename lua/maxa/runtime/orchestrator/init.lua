@@ -369,12 +369,16 @@ end
 ---   usage_provider?: fun(): table|nil|undefined injectable usage snapshot
 ---                ({ ratio = number }) for context-stop (W6; real token stats
 ---                land in phase 4/5),
+---   skills_state?: table|nil assembled skills discovery state (W5; nil = the
+---                composer falls back to `maxa.assembly.skills_state` when the
+---                maxa entry module is loaded),
 --- }
 ---@return table orchestrator
 function M.new(opts)
   opts = opts or {}
   local bus = resolve_bus(opts.events)
   local conv = opts.conversation or conversation
+  local skills_state = opts.skills_state
   local session = opts.session
     or session_mod.new({
       project_id = opts.project_id,
@@ -426,6 +430,9 @@ function M.new(opts)
     usage_provider = nil, -- W6 usage snapshot source; set right after construction
     -- (default local estimator unless the caller injected one)
     messages = nil, -- message stack created lazily on first submit
+    -- W5: assembled skills discovery state for system-prompt composition (nil =
+    -- fall back to `maxa.assembly.skills_state` when the entry module is loaded).
+    _skills_state = skills_state,
     _current = nil, -- { request=..., handle=..., started=bool, buff=string,
     --                reasoning=string, tool_calls=table[], finish_reason=string|nil,
     --                usage=table|nil, input_chars=int, terminal=bool }
@@ -1319,7 +1326,26 @@ local function run_stream(self, cur, async)
       end
     end
     self._provider_tool_ids = provider_tool_ids
-    params.normalized = { messages = self:_stack():to_table(), tools = tools }
+    -- W5: real-adapter requests carry the composed system prompt as the FIRST
+    -- normalized message (role="system"; adapters route it per protocol —
+    -- openai_chat system message / anthropic `system` blocks / gemini
+    -- `systemInstruction` / openai_responses `instructions`). Composition ran
+    -- once per submit (submit blocks on errors before start_request), so this
+    -- path only prepends; the message stack itself never carries the system
+    -- message (session history stays conversation-only).
+    local messages = self:_stack():to_table()
+    if cur and cur.system_prompt then
+      local with_system = {}
+      with_system[1] = {
+        role = "system",
+        content = { self.conversation.text_part(cur.system_prompt) },
+      }
+      for i, m in ipairs(messages) do
+        with_system[i + 1] = m
+      end
+      messages = with_system
+    end
+    params.normalized = { messages = messages, tools = tools }
     -- Preserve host-provided setup extras that adapter:setup normalized away
     -- (e.g. anthropic_messages url/headers: setup() does not carry them, but
     -- stream() requires them — live.lua merges them into st_params the same way).
@@ -1842,6 +1868,65 @@ local function replay_result(self, intent)
   return out
 end
 
+--- W5: compose the system prompt for a real-adapter request
+--- (supermax-configuration spec §Prompt composition). Uses delayed requires so
+--- `maxa.runtime.prompts` never loads at orchestrator module-load time (the
+--- composer is an optional runtime capability; mock/echo paths never call it).
+--- The project root is the session project id when bound, otherwise discovered
+--- upward from the cwd via the `.maxa/` marker; skills_state comes from
+--- `opts.skills_state` or falls back to the assembled runtime
+--- (`maxa.assembly.skills_state`) when the maxa entry module is loaded.
+--- Returns typed errors verbatim from the composer contract; the caller decides
+--- blocking semantics (submit blocks; composition never mutates session state).
+---@return string|nil system_prompt composed prompt
+---@return table|nil err typed error on failure
+function M:_compose_system_prompt()
+  local ok_p, prompts = pcall(require, "maxa.runtime.prompts")
+  if not ok_p then
+    return nil,
+      schema.new_error(schema.ERROR.CONFIGURATION, "system prompt composer unavailable: " .. tostring(prompts))
+  end
+  local root = self.session and self.session.project_id
+  if type(root) ~= "string" or root == "" then
+    local ok_c, config = pcall(require, "maxa.runtime.config")
+    if ok_c and type(config.find_project_root) == "function" then
+      local r, rerr = config.find_project_root(vim.fn.getcwd())
+      if r then
+        root = r
+      elseif rerr then
+        return nil, rerr
+      end
+    end
+  end
+  if type(root) ~= "string" or root == "" then
+    return nil,
+      schema.new_error(
+        schema.ERROR.INVALID_ARGUMENT,
+        "system prompt composition requires a project root (session project_id or .maxa/ marker)"
+      )
+  end
+  local skills_state = self._skills_state
+  if skills_state == nil then
+    local ok_m, maxa = pcall(require, "maxa")
+    if ok_m and type(maxa) == "table" and type(maxa.assembly) == "table" then
+      skills_state = maxa.assembly.skills_state
+    end
+  end
+  local ok_cfg, config_mod = pcall(require, "maxa.runtime.config")
+  local result = prompts.compose({
+    root = root,
+    config = ok_cfg and config_mod.effective or nil,
+    skills_state = skills_state,
+  })
+  if result.error then
+    return nil, result.error
+  end
+  if type(result.system_prompt) ~= "string" or result.system_prompt == "" then
+    return nil, schema.new_error(schema.ERROR.CONFIGURATION, "system prompt composition produced no prompt")
+  end
+  return result.system_prompt, nil
+end
+
 --- Submit through the loop: submit -> stream -> complete.
 --- W3 intent model: every submit records an immutable submit intent (kind,
 --- expected session generation, input/context revision); replaying the same
@@ -2133,6 +2218,23 @@ function M:submit(text, opts)
   -- Store forwarding params for provider.stream.
   self._last_params = opts.provider_params or {}
 
+  -- W5 (supermax-configuration §Prompt composition / §Failure policy): real
+  -- adapter requests carry the composed system prompt (bundled runtime contract
+  -- + optional project `.maxa/system.md` wrapper). Composition failure BLOCKS
+  -- request submission as a typed rejected error WITHOUT corrupting session
+  -- history (the user turn was already persisted above; the session stays
+  -- usable and the next submit re-composes). Mock/echo built-in providers skip
+  -- composition (they have no system channel; their params carry no normalized
+  -- messages).
+  local system_prompt = nil
+  if self._real_adapter then
+    local sp, perr = self:_compose_system_prompt()
+    if perr then
+      return rejected(perr)
+    end
+    system_prompt = sp
+  end
+
   -- Start a new request through the session (advances generation, session -> busy).
   local request, start_err = self.session:start_request({
     intent = kind,
@@ -2173,6 +2275,9 @@ function M:submit(text, opts)
     handle = nil,
     usage = nil, -- latest normalized usage from usage_updated events
     input_chars = input_chars,
+    -- W5: composed system prompt for this request (real adapter path only;
+    -- nil for mock/echo). run_stream prepends the system message when present.
+    system_prompt = system_prompt,
   }
   self._current = cur
 

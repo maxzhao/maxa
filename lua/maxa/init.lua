@@ -38,6 +38,7 @@ M.defaults = {
   ---         model = "deepseek-v4-flash",
   ---         capabilities = { vision = false, tools = true, reasoning = true },
   ---         request = { timeout_ms = 60000, connect_timeout_ms = 10000, retries = 0 },
+  ---         context_window = 128000, -- 可选：上下文窗口（tokens）；缺省 128000，用于 context-stop 用量估算
   ---       },
   ---     },
   ---   }
@@ -57,6 +58,11 @@ M.defaults = {
     show_reasoning = false,
     --- 布局：vertical | horizontal | float（默认 vertical = 右侧半屏分屏）。
     layout = "vertical",
+    --- 打开 Chat 视图时是否直接进入 insert 模式（默认 false = 保持 normal；
+    --- host View:open 的 `startinsert` 按此条件化）。
+    start_in_insert = false,
+    --- spinner 显示延迟（ms；0 = 立即显示；默认 300 与 status spine 默认一致）。
+    spinner_delay = 300,
   },
   --- 会话历史与重启恢复（阶段 4 消费；默认关闭，显式开启后才装配服务）。
   ---   * enabled：总开关；false 时不做任何 history 服务构造 / auto-save
@@ -72,7 +78,8 @@ M.defaults = {
   ---   * expiration_days：过期清理天数；0 = 永不过期（启动时清理）。
   ---   * title_generation_opts：标题生成选项 —— refresh_every_n_prompts
   ---     （每 N 次提示刷新一次；0 = 仅首次生成）、max_refreshes（刷新次数
-  ---     上限）、format_title（nil | 标题后处理函数）。
+  ---     上限）、format_title（nil | 标题后处理函数，如：
+  ---       format_title = function(title) return title:sub(1, 60) end）。
   history = {
     enabled = false,
     auto_save = true,
@@ -81,8 +88,31 @@ M.defaults = {
     expiration_days = 0,
     title_generation_opts = { refresh_every_n_prompts = 0, max_refreshes = 3, format_title = nil },
   },
-  --- 编排器默认（阶段 2 已消费；未在此声明的内部默认值保留在 orchestrator 模块）。
-  orchestrator = {},
+  --- 编排器默认（阶段 2 消费；host 创建 orchestrator 时经 config.effective
+  --- 注入本块，orchestrator 内部与 ORCHESTRATOR_DEFAULTS 深合并）。
+  ---   * tool_concurrency：工具批并行度（当前执行器仍顺序运行，>1 暂不激活
+  ---     并行；保留给未来并行 barrier）。
+  ---   * watchdog：请求看守 —— enabled 总开关（默认关）；timeout_ms 无进展
+  ---     观察窗口；max_retries 有界重试上限（耗尽 = 单次终端 failed）。
+  ---   * context_stop：上下文上限自动 soft-stop 总开关（:MaxaContextStop 的
+  ---     配置级默认；运行时仍可手动 arm/disarm）。
+  --- 参考样例（写入会生效；默认值如上，无需显式声明）：
+  ---   orchestrator = {
+  ---     tool_concurrency = 1,
+  ---     watchdog = { enabled = true, timeout_ms = 180000, max_retries = 3 },
+  ---     context_stop = { enabled = false },
+  ---   }
+  orchestrator = {
+    tool_concurrency = 1,
+    watchdog = {
+      enabled = false,
+      timeout_ms = 180000,
+      max_retries = 3,
+    },
+    context_stop = {
+      enabled = false,
+    },
+  },
   --- Skill 子系统（阶段 3/W7 消费；mcp-skill-runtime spec）：
   ---   * enabled：总开关；false 时运行时装配不做任何 Skill 发现/注册。
   ---   * roots：发现根开关，与 skills.discover 的三类根一一对应 ——
@@ -103,7 +133,21 @@ M.defaults = {
     enabled = true,
     servers_file = ".maxa/mcp/servers.yaml",
   },
-  status = {},
+  --- 全局状态投影配置（阶段5 W2/W5 消费；host set_defaults 保存，status 服务
+  --- 装配点由未来的主会话 status wiring 消费；未装配时仅保存默认，不报错）：
+  ---   * lualine：lualine 组件开关 —— enabled 总开关，show_spinner/show_usage
+  ---     控制 busy spinner 与 token usage 是否进入投影文本。
+  ---   * billing：可选的配额/计费投影 —— enabled 总开关；provider 仅按名引用
+  ---     函数或模块名（运行时解析失败投影为 unavailable，绝不报错）。样例
+  ---     （函数返回 `{ tokens=..., cost_usd=..., currency="USD" }` 形状）：
+  ---       status = { billing = {
+  ---         enabled = true,
+  ---         provider = function(usage) return { tokens = usage and usage.total_tokens, cost_usd = nil } end,
+  ---       } }
+  status = {
+    lualine = { enabled = true, show_spinner = true, show_usage = true },
+    billing = { enabled = false, provider = nil },
+  },
   --- Leader-prefixed command mapping surfaced by lazy `keys`（见 lua/plugins/maxa.lua）。
   keymaps = {
     chat = "<leader>mx",
@@ -199,6 +243,11 @@ function M.setup(opts)
     model = M.config.model,
     show_reasoning = ui.show_reasoning,
     layout = ui.layout,
+    -- W5: Chat 视图打开模式 + spinner/status 配置（host set_defaults 消费；
+    -- status 服务未装配时仅保存默认，不报错）。
+    start_in_insert = ui.start_in_insert,
+    spinner_delay = ui.spinner_delay,
+    status = M.config.status,
     -- W1: the assembled tool registry becomes the host default so default
     -- views (e.g. `:MaxaChat` -> `_get_default`) see MCP/skill tools.
     tool_registry = M.assembly.tool_registry,
@@ -211,7 +260,71 @@ function M.setup(opts)
     host_opts.history = M.assembly.history
     host_opts.history_config = M.config.history
   end
+  -- W6 (phase-5): status service (spine) + Action/Command registry wiring.
+  -- Non-blocking: a construction failure is recorded and setup continues so
+  -- the Chat host stays usable (same semantics as MCP/skills/history).
+  -- Status service: immutable spine reducer over the shared event bus; the
+  -- host lualine component reads it through host/nvim/status.lua set_spine.
+  local status_mod = require("maxa.runtime.status")
+  local ok_svc, status_service = pcall(status_mod.new, {
+    events = require("maxa.runtime.events"),
+    config = M.config,
+  })
+  if ok_svc and status_service then
+    local ok_start, start_err = pcall(status_service.start, status_service)
+    if ok_start then
+      host_opts.status_service = status_service
+    elseif not M.assembly.errors then
+      M.assembly.errors = {}
+    end
+    if not ok_start then
+      M.assembly.errors[#M.assembly.errors + 1] = { what = "status", err = start_err }
+    end
+  end
+  -- Action/Command registry: fresh registry + built-in operation families.
+  local actions_mod = require("maxa.runtime.actions")
+  local registry = actions_mod.default or actions_mod.new()
+  local ok_reg, reg_err = pcall(function()
+    require("maxa.runtime.actions.builtin").register_all(registry)
+  end)
+  if ok_reg then
+    host_opts.actions_registry = registry
+  elseif M.assembly.errors then
+    M.assembly.errors[#M.assembly.errors + 1] = { what = "actions", err = reg_err }
+  end
   host.set_defaults(host_opts)
+  -- W6 (phase-5): lualine auto-mount (LazyVim ecosystem). When
+  -- `status.lualine.enabled` and lualine is loaded with `get_config()`, the
+  -- maxa status component (read-only spine projection) is inserted at the head
+  -- of `lualine_x` and the statusline is refreshed. Absent lualine or an
+  -- unreadable config is silently skipped — the component stays available for
+  -- manual mounting via `require("maxa.runtime.host.nvim.status").lualine_component()`.
+  local lualine_cfg = M.config.status and M.config.status.lualine
+  if lualine_cfg and lualine_cfg.enabled ~= false then
+    pcall(function()
+      local lualine = require("lualine")
+      if type(lualine.get_config) == "function" then
+        local lc = lualine.get_config()
+        lc.sections = lc.sections or {}
+        lc.sections.lualine_x = lc.sections.lualine_x or {}
+        local already = false
+        for _, c in ipairs(lc.sections.lualine_x) do
+          if type(c) == "table" and c.name == "maxa_status" then
+            already = true
+            break
+          end
+        end
+        if not already then
+          local comp = require("maxa.runtime.host.nvim.status").lualine_component()
+          table.insert(lc.sections.lualine_x, 1, { comp, name = "maxa_status" })
+          lualine.setup(lc)
+          if type(lualine.refresh) == "function" then
+            lualine.refresh()
+          end
+        end
+      end
+    end)
+  end
   return M.config
 end
 return M

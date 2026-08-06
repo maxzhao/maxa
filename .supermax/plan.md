@@ -388,20 +388,40 @@ headless 脚本验证不算人工可审核。此条款为阶段1 gate 必要条�
 > 纵向：面向用户的完整状态与操作面。横向：把各阶段积累事件 case 收束为 spine。
 
 ### 实现
-- [ ] 事件总线完善：sequence/idempotency、transactional reducer、isolated observer、event_id 重放无副作用
-- [ ] 不可变 spine reducer + 可选 billing/quota 投影（失败不影响 Chat）
-- [ ] Chat 视图完善：attach/hide/reattach/close、snapshot 渲染、input revision 完整化、context/attachment 选择、安全切 provider/model（注：渲染/折叠/输入/操作/状态中 L0 部分已提前至阶段1.5，本条为剩余收口项）
-- [ ] lualine + spinner 投影（只读 spine，不查 CodeCompanion 内部）
-- [ ] Action/Command registry + palette/keymap + 内置操作族（history/compact/stop/provider/rewind/fork/health…）
-- [ ] 可选消费者移植（翻译/Telegram/状态面板）；TaskBrowser 作为外部 spine consumer 保持独立
-- [ ] config：ui（layout/start_in_insert/spinner_delay/status/lualine/billing）
+- [x] 事件总线完善：sequence/idempotency、transactional reducer、isolated observer、event_id 重放无副作用
+- [x] 不可变 spine reducer + 可选 billing/quota 投影（失败不影响 Chat）
+- [x] Chat 视图完善：attach/hide/reattach/close、snapshot 渲染、input revision 完整化、context/attachment 选择、安全切 provider/model（注：渲染/折叠/输入/操作/状态中 L0 部分已提前至阶段1.5，本条为剩余收口项）
+- [x] lualine + spinner 投影（只读 spine，不查 CodeCompanion 内部）
+- [x] Action/Command registry + palette/keymap + 内置操作族（history/compact/stop/provider/rewind/fork/health…）
+- [x] 可选消费者移植（翻译/Telegram/状态面板）；TaskBrowser 作为外部 spine consumer 保持独立（状态面板内置；翻译/Telegram 接口级注册点默认 disabled；TaskBrowser 无专门代码）
+- [x] config：ui（layout/start_in_insert/spinner_delay/status/lualine/billing）
 
 ### 伴随验证
-- [ ] 状态/配置行（S-001/002、C-*）：spine snapshot、lualine 刷新、prompt 组合（fallback/override/slot/schema_version）
-- [ ] host/status/action/command fixture + closest headless Neovim 集成测试
-- [ ] 时刻关键：lualine 只读 spine、spinner 对 deleted view 安全、action 失败不锁死 Chat
+- [x] 状态/配置行（S-001/002、C-*）：spine snapshot、lualine 刷新、prompt 组合（fallback/override/slot/schema_version）
+- [x] host/status/action/command fixture + closest headless Neovim 集成测试
+- [x] 时刻关键：lualine 只读 spine、spinner 对 deleted view 安全、action 失败不锁死 Chat
 
 **本层 gate**：状态栏正确反映请求/工具/终止态；Action/Command 面板可触发核心操作；spine 只读投影成立。
+
+> **阶段5 gate 声明（2026-08-06）**：✅ 技术验证通过（人工可审核条款待用户 UI 实测）。
+> 实施（`.supermax/drafts/phase5-implementation-plan.md` + `phase5-todo.md`，W1-W6 子代理实施 + 主会话逐波复验）：
+> W1 事件总线（events/init.lua 730 行：完整信封 event_id/per-session sequence/identity 字段、register_reducer 事务阶段、replay 无 observer 副作用、seen_event_ids 幂等、6 个新事件常量 additive；tests/events 8 fixtures）；W2 spine/status（status/{spine,init,billing}.lua：纯 reducer + 服务 + quota 投影失败 typed 不 raise；host/nvim/status.lua 135 行 set_spine/lualine 只读 spine；tests/status 5 fixtures S-001/002）；W3 视图收口（host/nvim/init.lua 3050 行：hide/reattach/close_view 与 close-session 语义分离、_ui_closed/_hidden 状态、input revision 原子捕获、:MaxaContext picker、busy 安全切 provider/model、:MaxaHide/:MaxaReattach/:MaxaContext；tests/ui/view-lifecycle.lua A-H）；W4 actions registry（actions/{init,builtin}.lua：register/discover/dispatch 契约、重复 hash 拒绝、requires_idle_request、typed 失败不锁 Chat、23 个内置操作族；tests/actions 4 fixtures）；W5 prompts + config（runtime/prompts/init.lua 组合器 + lua/maxa/prompts/system.md bundled + C-001~004 集成；config ui/status 子块 fail-closed 校验；M.defaults 增 ui.start_in_insert/spinner_delay/status.lualine/billing；orchestrator system 消息按 adapter 通道注入，四协议零 adapter 改动）；W6 集成（maxa.setup 装配 status service + actions registry、:MaxaActions palette（vim.ui.select + build_action_context）、KEYMAPS gA、host shutdown dispose、lazy cmd 补 3 命令、justfile 5 个新 recipes test-events/test-status/test-actions/test-prompts/test-phase5-wiring、tests/host/phase5-wiring.lua）。
+> 技术证据（主会话复验全绿）：全量 21 套件（smoke、test-events 8、test-status 5、test-actions 4、test-prompts 5、test-phase5-wiring、test-state 33、test-protocol 41、test-protocol-unit 16+67、test-config 72、test-tools 12、test-mcp 12、test-skills 12、test-history 24、test-gate P3_GATE_OK、ui 五套、w8/w10）；lint（stylua）、`git diff --check` 通过；import-guard 无违禁。prompt 组合经 orchestrator 注入真实 system 消息（fallback/override/slot/schema_version），四协议 fixture 41 全绿。
+> **2026-08-06 挂载补强（人工实测前置）**：① lualine 自动挂载——maxa.setup 检测 lualine 已加载时把 maxa 组件（name="maxa_status"）插入 `lualine_x` 头部并 refresh（幂等；无 lualine 静默跳过，仍可手动挂载）；② spine→statusline 事件驱动刷新——host 在 status 服务 `on_refresh` 注册 `redrawstatus`（幂等 off 管理；headless no-op）；③ lazy `cmd` 列表补齐 `MaxaSoftStop`/`MaxaContextStop`/`MaxaActions`；④ 开发母仓库 `.maxa/system.md` 实测示例已创建（C-002 override；含 `<system_prompt>` 恰好一次 + 标量占位符）。验证：tests/host/phase5-wiring.lua 增 E 块（lualine 自动挂载断言 + 真实 root compose override 断言）全绿。
+> **2026-08-06 视图恢复入口修复（用户实测反馈）**：`gh` 隐藏后 chat buffer 的 buffer-local `gr` 不可达（窗口已隐藏、焦点不在 chat buffer）——恢复契约改为全局入口：`:MaxaReattach` / `<leader>mr` / `:MaxaChat`（`M.open` 对 `_hidden`/`_ui_closed` 视图恢复同一会话，不再走 close-session 分支；`lua/plugins/maxa.lua` 增全局 `<leader>mh`/`<leader>mr`/`<leader>ma`）。验证：tests/ui/view-lifecycle.lua 增 I 块（hide 后 M.open/M.reattach 恢复同一会话、session id 不变、不清除 UI 状态）全绿 + test-history/state/wiring/smoke/lint/check 回归绿。
+>
+> **2026-08-06 更正（用户决策）：删除 `.maxa/system.md` 实测示例**——当前项目不使用 system prompt override（覆盖系统提示词为极少见场景；override 功能保留，由 tests/prompts C-002 fixture 保障）。删除理由：① `.maxa/system.md` 中 "Project composition snapshot"（root_dir/date/vim_ver/machine/skills_table）与 bundled `lua/maxa/prompts/system.md` Role/Skills 段重复——全局提示词已含全部组合快照占位符展开，项目无需重复；② 项目上下文常态应走 AGENTS.md 风格用户上下文文档（未来设计方向，本次不动代码）。同步更新：tests/host/phase5-wiring.lua E 块由"真实 root override 选中"改为"真实 root bundled fallback（C-001）断言"；实测手册相应条目改写。
+>
+> **人工实测操作手册（用户按此逐条操作并核对现象）**：
+> - **准备**：`cd ~/maxa && just run`（或 `NVIM_APPNAME=nvim-maxa nvim`）。配置已预置：真实 provider（deepseek-chat/deepseek-responses/deepseek-anthropic，key 从 `.env` 注入）、history 已启用、lualine 组件自动挂载。当前仓库**不使用** `.maxa/system.md` override（2026-08-06 用户决策删除示例；compose 回退 bundled runtime prompt）。
+> - **1. 打开 Chat 并确认状态栏**：`:MaxaChat` 打开聊天窗口；输入任意问题回车。观察状态行区域（LazyVim statusline 右侧，lualine_x 内 maxa 组件）：请求开始出现 spinner 帧 + `provider=deepseek-chat model=deepseek-v4-flash`；回复流式出现期间保持 busy；完成后出现 `completed` + 归一 usage（in=/out= tokens）。此条验证：spine 服务装配、lualine 自动挂载、on_refresh→redrawstatus 事件驱动刷新。
+> - **2. Action/Command palette**：在 chat buffer 按 `gA`（或 `:MaxaActions`）→ 浮层列出内置操作族（chat.provider/model/stop/soft_stop/context_stop/clear、view.hide/reattach/close_view/close_session、history.*、status.panel、health.check）。选择 `health.check` → 弹出只读健康报告（runtime 模块/config/provider）；选择 `status.panel` → 弹出 spine 只读快照（active/display session、running/request 计数、provider/model、usage）。此条验证：actions registry 装配、palette 接线、能力上下文（config/spine_snapshot）。
+> - **3. 视图生命周期（恢复入口是全局命令/键位，2026-08-06 修正）**：`gh`（chat buffer 内）→ 窗口隐藏（会话保留）；**隐藏后 chat buffer 的 `gr` 不可达**（buffer-local），恢复用全局入口：`:MaxaReattach` 或 `<leader>mr` 或 `:MaxaChat`（三者都恢复**同一会话**、消息不丢，不会关闭会话）；`gc`（chat buffer 内）→ context 选择器，选择后提交可见上下文注入；`<leader>mh` 全局再隐藏、`<leader>ma` 全局 actions palette。此条验证：hide/reattach 语义分离 + 全局恢复入口、context 选择器、input revision 捕获。
+> - **4. 安全切 provider/model**：回复进行中按 `:MaxaProvider deepseek-responses` → 提示 `provider switch rejected — session busy; retry when idle`（拒绝，不影响当前请求）；回复完成后重试 → 切换成功，header 更新 provider/model。此条验证：busy 安全边界（requires_idle_request + 视图级守卫）。
+> - **5. 历史操作族**：先聊几句（自动落盘）。`:MaxaActions` 选 `history.list` → notify 列出最近会话（title/model/msg 数）；选 `history.compact` → 触发压缩（有归档记录）；`:MaxaHistory` 仍可打开历史会话继续对话。此条验证：history 操作族经 context.history 转发、与既有 :MaxaHistory 并存。
+> - **6. system prompt 默认 fallback**：当前仓库无 `.maxa/system.md`（2026-08-06 删除，项目不使用 override）→ 对话请求的 system 消息 = bundled runtime 契约展开（Role/Skills 段含 `<machine>`/`<root_dir>`/`<date>`/`<vim_ver>`/`<skills_table>` 确定性展开；`.supermax/` 不参与）。此条验证：C-001 fallback；override 功能（C-002）由 tests/prompts fixture 保障，无需本仓库文件。
+> - **7. 既有命令回归**：`:MaxaStop`（立即取消）、`:MaxaSoftStop`（drain 后抑制续跑）、`:MaxaContextStop 10`（arm）、`:MaxaClose`（close-save + 销毁会话）行为与阶段 2/4 一致。此条验证：命令入口齐全（lazy cmd 已补齐）、无回归。
+> - **8. 全部符合预期** → 人工审核通过，阶段5 gate 成立（headless 证据见上）。
 
 ---
 

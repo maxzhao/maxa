@@ -92,6 +92,11 @@ local protocol = guard.require("maxa.runtime.protocol")
 local events = guard.require("maxa.runtime.events")
 local schema = guard.require("maxa.runtime.schema")
 local config = guard.require("maxa.runtime.config")
+-- W3 (phase-5): submission validation (message-context-target §Submission
+-- validation) is applied at the VIEW boundary so one atomic capture (visible
+-- text + selected context IDs + attachments) is validated before the request
+-- is composed; the orchestrator keeps its own validation as the backstop.
+local conversation = guard.require("maxa.runtime.conversation")
 -- chat-ui-render (phase 1.5 subpackage 3.1): incremental buffer writer +
 -- header/separator extmark decorations + streaming cursor virtual text.
 local render = guard.require("maxa.runtime.host.nvim.render")
@@ -133,6 +138,14 @@ M.KEYMAPS = {
   { buf = "chat", mode = "n", keys = "]]", desc = "next message header", fn = "_goto_header", args = { 1 } },
   { buf = "chat", mode = "n", keys = "[[", desc = "previous message header", fn = "_goto_header", args = { -1 } },
   { buf = "chat", mode = "n", keys = "g?", desc = "show keymap help", fn = "_show_keymap_help" },
+  -- W3 (phase-5): view lifecycle keymaps (chat-ui spec §View lifecycle) —
+  -- hide keeps the attachment + session, reattach rebuilds the UI generation
+  -- over the same session, gc opens the context picker (chat-ui spec §Input).
+  { buf = "chat", mode = "n", keys = "gh", desc = "hide chat window (keep session)", fn = "hide" },
+  { buf = "chat", mode = "n", keys = "gr", desc = "reattach chat view (rebuild UI, keep session)", fn = "reattach" },
+  { buf = "chat", mode = "n", keys = "gc", desc = "pick context items to attach to next submit", fn = "_pick_context" },
+  -- W6 (phase-5): Action/Command palette (registry-backed; gA).
+  { buf = "chat", mode = "n", keys = "gA", desc = "open actions palette", fn = "actions_palette" },
 }
 
 -- (Repository-root derivation was previously used for dev `.maxa/runtime.yaml`
@@ -152,6 +165,20 @@ M.DEFAULT_LAYOUT = "vertical"
 -- registry default for views created without an explicit `tool_registry` opt
 -- (e.g. `_get_default()`); nil keeps the legacy injected-only behavior.
 M.DEFAULT_TOOL_REGISTRY = nil
+-- W5 (supermax-configuration): Chat 视图打开模式 —— 打开 Chat 时是否直接进入
+-- insert 模式（maxa.setup 经 set_defaults 注入；默认 false 保持 normal 模式；
+-- View:open 的 `startinsert` 按视图的 `start_in_insert` 条件化）。
+M.DEFAULT_START_IN_INSERT = false
+-- W5: spinner 显示延迟（ms；0 = 立即显示；与 status spine 默认 300ms 一致）。
+-- 保存为模块默认，status 服务装配点（未来的主会话 wiring）消费；未装配时
+-- 仅保存，不报错。
+M.DEFAULT_SPINNER_DELAY = 300
+-- W5: 全局状态投影配置（status.lualine / status.billing 子块）。set_defaults
+-- 保存为模块默认；status 服务未装配时仅保存默认，不报错。
+M.DEFAULT_STATUS_CFG = {
+  lualine = { enabled = true, show_spinner = true, show_usage = true },
+  billing = { enabled = false, provider = nil },
+}
 
 -- W4-B: the Phase-4 history service + its config section (set by maxa.setup
 -- via set_defaults ONLY when history.enabled; nil keeps every history path
@@ -165,13 +192,25 @@ M._history_listening = false
 -- Restore-in-progress guard: continue_last must not re-trigger while the
 -- restore flow itself rebuilds the default view (recursion safety).
 M._restoring = false
+-- W6 (phase-5): status service (spine) + Action/Command registry wiring.
+-- The status service is the read-only aggregate spine for lualine/spinner;
+-- the actions registry carries the built-in operation families. Both are
+-- optional: absent services leave the host fully usable (fallback paths).
+M._status_service = nil
+M._status_disposed = false
+-- W6: spine on_refresh unregister (idempotent re-set of the status service).
+M._status_refresh_off = nil
+M._actions = nil
 
 --- Override the view defaults from the maxa config.
 --- Called by `require("maxa").setup`; keeps host free of a maxa/init circular require.
 ---@param opts? table { provider?: string, model?: string, show_reasoning?: boolean, layout?: string,
 ---   tool_registry?: table|nil assembled tool registry (W1),
 ---   history?: table|nil Phase-4 history service (W4-B; nil when disabled),
----   history_config?: table|nil effective history config section (W4-B) }
+---   history_config?: table|nil effective history config section (W4-B),
+---   start_in_insert?: boolean, 打开 Chat 时是否进入 insert 模式 (W5),
+---   spinner_delay?:   number,   spinner 显示延迟 ms (W5; 0 = 立即),
+---   status?:          table,    status.lualine/status.billing 配置 (W5) }
 ---@return table self
 function M.set_defaults(opts)
   opts = opts or {}
@@ -190,6 +229,17 @@ function M.set_defaults(opts)
   if opts.tool_registry ~= nil then
     M.DEFAULT_TOOL_REGISTRY = opts.tool_registry
   end
+  -- W5: Chat 视图打开模式 / spinner 延迟 / status 投影配置（status 服务未装配
+  -- 时仅保存默认，不报错；装配点消费这些模块默认）。
+  if opts.start_in_insert ~= nil then
+    M.DEFAULT_START_IN_INSERT = not not opts.start_in_insert
+  end
+  if opts.spinner_delay ~= nil then
+    M.DEFAULT_SPINNER_DELAY = opts.spinner_delay
+  end
+  if opts.status ~= nil then
+    M.DEFAULT_STATUS_CFG = opts.status
+  end
   -- W4-B: history service + config. NOTE: Lua table literals with nil values
   -- do not create keys, so a nil-value `history` field is indistinguishable
   -- from an absent one — production maxa.setup simply OMITS the key when
@@ -202,6 +252,30 @@ function M.set_defaults(opts)
   end
   if opts.history_config ~= nil then
     M._history_config = opts.history_config
+  end
+  -- W6 (phase-5): status service (spine) + Action/Command registry wiring.
+  -- The status service is the read-only aggregate spine for lualine/spinner;
+  -- the actions registry carries the built-in operation families. Both are
+  -- optional: absent services leave the host fully usable (fallback paths).
+  if opts.status_service ~= nil then
+    -- Idempotent observer: a previous service registration is unregistered
+    -- before the new one takes over (set_defaults may run more than once).
+    if M._status_refresh_off then
+      pcall(M._status_refresh_off)
+      M._status_refresh_off = nil
+    end
+    M._status_service = opts.status_service
+    if M._status_service and not M._status_disposed then
+      status.set_spine(M._status_service)
+      -- W6: spine 更新后立即刷新 statusline（lualine 组件在每次重绘时求值；
+      -- 事件驱动刷新，不做轮询；headless 下 redrawstatus 是 no-op）。
+      M._status_refresh_off = M._status_service:on_refresh(function()
+        pcall(vim.cmd, "redrawstatus")
+      end)
+    end
+  end
+  if opts.actions_registry ~= nil then
+    M._actions = opts.actions_registry
   end
   if M._setup_done then
     M._ensure_history_listening()
@@ -533,6 +607,10 @@ function M.new(opts)
     -- W1: explicit registry wins; otherwise the assembled default (set by
     -- maxa.setup through set_defaults) so default views see MCP/skill tools.
     tool_registry = opts.tool_registry or M.DEFAULT_TOOL_REGISTRY,
+    -- W6 (supermax-configuration `orchestrator` section): the effective
+    -- LazyVim opts orchestrator block seeds tool_concurrency/watchdog/
+    -- context_stop; nil (pre-setup) falls back to ORCHESTRATOR_DEFAULTS.
+    orchestrator_config = (config.effective and config.effective.orchestrator) or nil,
   })
   if record then
     -- Real provider (W10.2): the orchestrator binds the adapter when the key is
@@ -567,6 +645,9 @@ function M.new(opts)
     _tool_display = {},
     show_reasoning = (opts.show_reasoning == nil) and M.DEFAULT_SHOW_REASONING or not not opts.show_reasoning,
     layout = opts.layout or M.DEFAULT_LAYOUT,
+    -- W5: 打开 Chat 时是否进入 insert 模式（默认从 set_defaults 注入的模块
+    -- 默认取值；per-view opts 可覆盖；View:open 按此条件化 `startinsert`）。
+    start_in_insert = (opts.start_in_insert == nil) and M.DEFAULT_START_IN_INSERT or not not opts.start_in_insert,
     errors = {}, -- non-terminal informational errors surfaced to the user
     -- UI buffers/windows (nil until open()).
     _opened = false,
@@ -598,6 +679,23 @@ function M.new(opts)
     -- W8: session View entity bound at open() (attached to the chat buffer);
     -- detach() releases it without touching the session/request.
     _session_view = nil,
+    -- W3 (phase-5) view lifecycle state (chat-ui spec §View lifecycle):
+    --   _ui_closed  true after close_view() — view resources disposed, session
+    --               ALIVE (distinct from `status == "closed"` = session gone);
+    --   _hidden     true after hide() — window hidden, attachment + buffer kept;
+    --   _input_revision  the next input revision to submit (starts at 0);
+    --   _last_submitted_revision  revision of the last accepted submit (nil
+    --               before the first submit);
+    --   _pending_context  context items picked for the next submit
+    --               ({ id, kind, source } list; consumed atomically on submit);
+    --   _submitted_context  context items captured by the last accepted submit
+    --               (exposed in snapshot() as context_ids).
+    _ui_closed = false,
+    _hidden = false,
+    _input_revision = 0,
+    _last_submitted_revision = nil,
+    _pending_context = {},
+    _submitted_context = {},
   }, View)
   if rerr then
     self.errors[#self.errors + 1] = {
@@ -672,6 +770,46 @@ function View:detach(reason)
   end
   self:_reset_ui_refs()
   return changed
+end
+
+--- Close the VIEW only (chat-ui spec §View lifecycle `close view`): dispose all
+--- view resources — session View entity -> detached, subscriptions removed,
+--- layout destroyed, UI refs dropped — but NEVER close the session, NEVER
+--- close-save and NEVER set `status = "closed"`. The session and any in-flight
+--- request continue unaffected; `open()` / `:MaxaChat` / `:MaxaReattach`
+--- rebuild the UI over the SAME session afterwards. Fires `view.closed`.
+--- (Contrast `close()`: that closes the session too — close-save + orch:close
+--- + status="closed" — and its semantics stay unchanged.)
+---@return boolean changed true when this call performed the close
+function View:close_view()
+  if self:_is_closed_view() or self._ui_closed then
+    return false
+  end
+  self._ui_closed = true
+  self._hidden = false
+  -- Release the session attachment (view entity -> detached; the session and
+  -- the request keep running).
+  if self._session_view then
+    self.orch.session:detach_view(self._session_view, "view closed")
+  end
+  -- Unsubscribe: without a UI there is nothing to render; reattach re-syncs
+  -- the display model from the session stack.
+  for _, off in ipairs(self._subs) do
+    pcall(off)
+  end
+  self._subs = {}
+  -- Destroy the layout (windows + scratch buffers); the session is untouched.
+  if self._layout then
+    pcall(function()
+      self._layout:close()
+    end)
+  end
+  self:_reset_ui_refs()
+  self.events.emit(self.events.events.view_closed or "view.closed", {
+    view_id = self:_view_identity(),
+    session_id = self.orch.session.id,
+  })
+  return true
 end
 
 ---@private Register streaming / session events. Unsubscribes are retained for close().
@@ -963,15 +1101,28 @@ end
 --- Open (or focus) the Chat window pair. Builds a `snacks` floating layout
 --- (chat window on top, input window below) on first open; afterwards, or when
 --- the layout was closed externally, it just rebuilds / refocuses it.
+--- W3 (chat-ui spec §View lifecycle): a HIDDEN view re-shows in place (layout
+--- unhide, idempotent); a view whose UI was closed via close_view() rebuilds
+--- a fresh generation over the SAME session. Idempotent reopen.
 ---@return boolean opened true when the window pair was (re)opened
 function View:open()
   if self.status == "closed" then
     return false
   end
   if self._layout and self._layout:valid() then
+    -- W3 hide() restore: the layout is still alive, only hidden — re-show it
+    -- in place instead of rebuilding (attachment + buffer preserved).
+    if self._hidden then
+      self._layout:unhide()
+      self._hidden = false
+    end
+    self._ui_closed = false
     self:_focus_open_windows()
     return true
   end
+  -- W3 close_view() restore: no valid layout remains — rebuild the UI over the
+  -- same session (a fresh session View entity is attached in the rebuild path).
+  self._hidden = false
   -- Single chat buffer (chat-ui-input integrated input area): the whole buffer
   -- is modifiable; the rendered message region is rewritten by _render while
   -- the input area (header line + user input) at the tail is user-owned.
@@ -1024,9 +1175,106 @@ function View:open()
   self:_render()
   -- chat-ui-status: this view is now the one lualine projects.
   status.set_active_view(self)
+  -- W6 (phase-5): when a status spine service is wired, the host lualine
+  -- projection switches to the read-only spine snapshot and the display
+  -- session identity follows this view's session (independent from the
+  -- spine's active-session identity).
+  if M._status_service and not M._status_disposed then
+    status.set_spine(M._status_service)
+    local sid = self.orch and self.orch.session and self.orch.session.id
+    if sid then
+      pcall(M._status_service.set_display_session, M._status_service, sid)
+    end
+  end
+  -- W3: a successful rebuild clears the close-view marker (a fresh UI
+  -- generation now owns this session again).
+  self._ui_closed = false
   self:_focus_open_windows()
-  vim.cmd("startinsert")
+  -- W5: 打开 Chat 时是否直接进入 insert 模式（ui.start_in_insert；默认 false
+  -- 保持 normal 模式，方便立刻用 `]]`/`[[` 导航或执行命令）。
+  if self.start_in_insert then
+    vim.cmd("startinsert")
+  end
   return true
+end
+
+--- Hide the Chat window but KEEP the view attachment + session alive
+--- (chat-ui spec §View lifecycle `hide`: "hide removes/focus-switches the
+--- window but keeps the view attachment"). The buffer/layout stay alive —
+--- only visibility is switched off — so the conversation (and any in-flight
+--- stream) continues untouched. `open()`/`:MaxaChat` re-shows idempotently.
+--- Fires `chat.hidden` (payload view_id/session_id).
+---@return boolean hidden true when this call performed the hide
+function View:hide()
+  if self:_is_closed_view() or not self._opened then
+    return false
+  end
+  -- snacks layout: hide keeps windows alive with config.hide=true; fall back
+  -- to nvim_win_hide (buffer preserved, window closed) for headless/manual
+  -- bindings without a layout, and for float windows where nvim refuses
+  -- config.hide ("Cannot split a floating window").
+  if self._layout and self._layout:valid() then
+    local ok_hide = pcall(function()
+      self._layout:hide()
+    end)
+    if not ok_hide and self._chat_win and vim.api.nvim_win_is_valid(self._chat_win) then
+      pcall(vim.api.nvim_win_hide, self._chat_win)
+    end
+  elseif self._chat_win and vim.api.nvim_win_is_valid(self._chat_win) then
+    pcall(vim.api.nvim_win_hide, self._chat_win)
+  end
+  self._hidden = true
+  self.events.emit(self.events.events.chat_hidden or "chat.hidden", {
+    view_id = self:_view_identity(),
+    session_id = self.orch.session.id,
+  })
+  return true
+end
+
+---@private Stable identity for lifecycle event payloads: the session View
+--- entity id when attached (per-attachment identity), else the session id.
+---@return string
+function View:_view_identity()
+  if self._session_view and self._session_view.id then
+    return self._session_view.id
+  end
+  return self.orch.session.id
+end
+
+--- Reattach the view UI over the SAME session (chat-ui spec §View lifecycle
+--- `reattach`): destroys any previous UI, creates a fresh view generation
+--- (new session View entity + full snapshot render synced from the session
+--- stack) and fires `chat.reattached`. Late callbacks from the earlier
+--- generation are ignored by the buffer-validity guards in `_render`/`_on_delta`.
+--- Idempotent for an already-detached/closed-UI view.
+---@return boolean ok true when the UI was rebuilt
+function View:reattach()
+  if self:_is_closed_view() then
+    return false
+  end
+  -- Dispose the previous UI generation (layout close triggers on_close ->
+  -- detach, which releases the session View entity and drops UI refs).
+  if self._layout then
+    pcall(function()
+      self._layout:close()
+    end)
+  else
+    self:_reset_ui_refs()
+  end
+  self._ui_closed = false
+  self._hidden = false
+  -- Re-sync the display model from the persisted session stack so messages
+  -- that arrived while the UI was closed/detached render on reattach (the
+  -- full snapshot render).
+  sync_view_items(self)
+  local ok = self:open()
+  if ok then
+    self.events.emit(self.events.events.chat_reattached or "chat.reattached", {
+      view_id = self:_view_identity(),
+      session_id = self.orch.session.id,
+    })
+  end
+  return ok
 end
 
 ---@private Focus the already-open window pair (idempotent reopen).
@@ -1386,7 +1634,12 @@ end
 
 ---@private Interactively pick a provider (mock/echo + config providers)
 --- (chat-ui-actions). Falls back to direct set_provider when no UI is present.
+--- W3 (chat-ui spec §Input): rejected while the session is busy (safe request
+--- boundary; the in-flight request's provider is never disturbed).
 function View:_pick_provider()
+  if not self:_safe_config_boundary("provider") then
+    return
+  end
   local candidates = { "mock", "echo" }
   -- Real providers come from the effective LazyVim opts config
   -- (lua/maxa/init.lua defaults + user opts, merged by maxa.setup).
@@ -1409,7 +1662,13 @@ function View:_pick_provider()
 end
 
 ---@private Interactively set the display model label (chat-ui-actions).
+--- W3 (chat-ui spec §Input): provider/model selection only happens at a safe
+--- request boundary — while the session is busy the picker is rejected with a
+--- typed error note + notify and NEVER touches the in-flight request.
 function View:_pick_model()
+  if not self:_safe_config_boundary("model") then
+    return
+  end
   vim.ui.input({ prompt = "maxa model: ", default = self.model }, function(input)
     if input and input ~= "" then
       self:set_model(input)
@@ -1417,10 +1676,141 @@ function View:_pick_model()
   end)
 end
 
+---@private W3 safe-config-boundary guard (chat-ui spec §Input): provider/model/
+--- context selection changes session configuration ONLY when no request is in
+--- flight. While busy the change is rejected (typed error recorded to
+--- `self.errors`, WARN notify, `_render`) and returns false; the in-flight
+--- request's provider/model is never disturbed.
+---@param what string "provider"|"model"|"context selection"
+---@return boolean allowed
+function View:_safe_config_boundary(what)
+  if self.orch:is_busy() then
+    local err = schema.new_error(
+      schema.ERROR.INVALID_ARGUMENT,
+      ("%s switch rejected: session busy; retry when idle"):format(what),
+      { session_id = self.orch.session.id },
+      false
+    )
+    self.errors[#self.errors + 1] = err
+    vim.notify(("maxa: %s switch rejected — session busy; retry when idle"):format(what), vim.log.levels.WARN)
+    self:_render()
+    return false
+  end
+  return true
+end
+
+---@private Resolve the submission context items for one submit (chat-ui spec
+--- §Input): explicit `context_ids` (string[]) select items from the pending
+--- picker list (`self._pending_context`, populated by `_pick_context`); ids
+--- not found there are materialized as minimal items ({ id, kind, source })
+--- so the submission always carries a validate_submission-compatible shape.
+--- When `context_ids` is nil the whole pending list is captured.
+---@param context_ids string[]|nil
+---@return table[] items { id=string, kind=string, source=string }
+function View:_resolve_context_items(context_ids)
+  local items = {}
+  local pending = self._pending_context or {}
+  local picked = {}
+  for _, c in ipairs(pending) do
+    if context_ids == nil then
+      items[#items + 1] = c
+    else
+      for _, id in ipairs(context_ids) do
+        if (c.id or c.context_id) == id then
+          picked[id] = true
+          items[#items + 1] = c
+          break
+        end
+      end
+    end
+  end
+  if context_ids ~= nil then
+    for _, id in ipairs(context_ids) do
+      if not picked[id] then
+        items[#items + 1] = { id = id, kind = "context", source = "submission" }
+      end
+    end
+  end
+  return items
+end
+
+---@private Add a picked context item to the pending submission list
+--- (dedup by id).
+---@param id string context item id
+---@param kind string context kind ("file"|"buffer"|"context"|...)
+---@param source string context source ("picker"|"buffer"|"session"|...)
+function View:_add_pending_context(id, kind, source)
+  if not id or id == "" then
+    return
+  end
+  local pending = self._pending_context or {}
+  for _, c in ipairs(pending) do
+    if c.id == id then
+      return
+    end
+  end
+  pending[#pending + 1] = { id = id, kind = kind or "context", source = source or "picker" }
+  self._pending_context = pending
+end
+
+---@private Interactive context picker (`:MaxaContext`, `gc`; chat-ui spec
+--- §Input): lists candidate context items — the session's context_items when
+--- present plus the current buffer/file — through vim.ui.select; the picked
+--- item joins `self._pending_context` and is captured by the next submit via
+--- `opts.context_ids`. Rejected while the session is busy (safe boundary).
+function View:_pick_context()
+  if not self:_safe_config_boundary("context selection") then
+    return
+  end
+  local candidates = {}
+  local seen = {}
+  local function add(id, kind, source, label)
+    if not id or id == "" or seen[id] then
+      return
+    end
+    seen[id] = true
+    candidates[#candidates + 1] = { id = id, kind = kind, source = source, label = label }
+  end
+  -- Session context_items (project knowledge entrypoints etc.), when present.
+  local ctx_items = self.orch.session and self.orch.session.context_items
+  if type(ctx_items) == "table" then
+    for _, it in ipairs(ctx_items) do
+      add(it.id or it.context_id, it.kind or "context", it.source or "session", tostring(it.id or it.context_id))
+    end
+  end
+  -- Current buffer/file candidate (headless-safe: only when a real file is
+  -- loaded — nvim_buf_get_name returns "" for scratch buffers).
+  local bufname = vim.api.nvim_buf_get_name(0)
+  if bufname ~= "" then
+    add(bufname, "file", "buffer", vim.fn.fnamemodify(bufname, ":t"))
+  end
+  vim.ui.select(candidates, {
+    prompt = "maxa context",
+    format_item = function(c)
+      return ("%s  (%s)"):format(c.label or c.id, c.kind)
+    end,
+  }, function(choice)
+    if choice then
+      self:_add_pending_context(choice.id, choice.kind, choice.source)
+    end
+  end)
+end
+
 --- Submit a user input through the orchestrator loop (submit → stream → terminal).
 --- UI-independent: usable headlessly for deterministic smoke tests.
+--- W3 input revision (chat-ui spec §Input): the submit ATOMICALLY captures the
+--- visible text + selected context IDs (+ attachments) into one revision,
+--- validates it through conversation.validate_submission (message-context-target
+--- §Submission validation), and only on acceptance marks that revision
+--- submitted (`_last_submitted_revision`); text typed after capture belongs to
+--- the NEXT revision. `opts.context_ids` (string[]) selects pending context
+--- items (picked via `:MaxaContext`/`_pick_context`); unknown ids are
+--- materialized as minimal items. The orchestrator receives the revision ids
+--- and the captured context ids via opts (its own validation stays the
+--- backstop; the view additionally exposes `_submitted_context` + snapshot
+--- `context_ids` for consumers).
 ---@param text string user input
----@param opts? table { async?, provider_params? } forwarded to orchestrator:submit
+---@param opts? table { async?, provider_params?, context_ids?: string[] }
 ---@return table result see orchestrator:submit
 function View:submit(text, opts)
   opts = opts or {}
@@ -1430,6 +1820,22 @@ function View:submit(text, opts)
       error = schema.new_error(schema.ERROR.INVALID_ARGUMENT, "chat view is closed; cannot submit", nil, true),
     }
   end
+  -- W3 atomic capture + validation BEFORE any request/UI side effect: the
+  -- captured context items (pending picker list resolved against explicit ids)
+  -- are validated together with the visible text. Rejected submissions never
+  -- append a user turn and never bump the input revision.
+  local context_ids = opts.context_ids
+  local context_items = self:_resolve_context_items(context_ids)
+  local vres = conversation.validate_submission(
+    { text = text or "", context = context_items },
+    { project_id = self.orch.session.project_id }
+  )
+  if not vres.ok then
+    self.errors[#self.errors + 1] = vres.error
+    self:_render()
+    return { rejected = true, error = vres.error, diagnostic = vres.diagnostic }
+  end
+  -- Append the visible user turn to the message model before streaming.
   -- Append the visible user turn to the message model before streaming.
   self.items[#self.items + 1] = { role = "user", text = text or "" }
   -- Structural change: a new user turn entered the conversation model.
@@ -1443,6 +1849,9 @@ function View:submit(text, opts)
     async = async,
     intent = "manual",
     provider_params = provider_params,
+    input_revision = self._input_revision,
+    context_revision = self._input_revision,
+    context_ids = context_ids,
   })
   if res and res.rejected then
     -- Rejected (e.g. duplicate submit while the session is busy): undo the
@@ -1461,6 +1870,15 @@ function View:submit(text, opts)
     -- soft-stop marker, so the view mirrors the cleared flag (the old request's
     -- drain boundary is consumed; a new soft stop must be requested anew).
     self.soft_stop = false
+    -- W3: mark this capture as submitted — the captured text/context now
+    -- belong to revision `rev`; the input area belongs to the next revision.
+    -- (Only accepted submissions bump the revision; orch-rejected ones keep
+    -- the pending capture intact for a retry.)
+    local rev = self._input_revision
+    self._input_revision = rev + 1
+    self._last_submitted_revision = rev
+    self._submitted_context = context_items
+    self._pending_context = {}
   end
   if res and (res.terminal_state or res.async) then
     -- The streaming callbacks / terminal event will reconcile status + render.
@@ -1558,6 +1976,14 @@ function View:clear()
   return self
 end
 
+--- W6 (phase-5): open the Action/Command palette for this view (registry-backed).
+--- KEYMAPS entry `gA`; delegates to the module-level palette so the same
+--- dispatch path serves `:MaxaActions`.
+---@return boolean dispatched
+function View:actions_palette()
+  return M.actions_palette()
+end
+
 --- Close the Chat window pair + destroy the underlying session. Idempotent.
 ---@return boolean changed
 function View:close()
@@ -1628,6 +2054,12 @@ end
 ---@param name string provider name (mock|echo or a config provider id)
 ---@return boolean ok
 function View:set_provider(name)
+  -- W3 safe request boundary (chat-ui spec §Input): while the session is busy
+  -- the switch is rejected with a typed error note; the in-flight request's
+  -- provider/model is never disturbed.
+  if not self:_safe_config_boundary("provider") then
+    return false
+  end
   local ok_pc, provider = pcall(protocol.get, name)
   if ok_pc and type(provider) == "table" then
     self.provider = provider
@@ -1702,10 +2134,14 @@ function View:set_provider(name)
 end
 
 --- Set the display model label (passthrough to the provider stream params).
+--- W3 safe request boundary: rejected (typed error + notify) while busy.
 ---@param model string model label
 ---@return boolean ok
 function View:set_model(model)
   if type(model) ~= "string" or model == "" then
+    return false
+  end
+  if not self:_safe_config_boundary("model") then
     return false
   end
   self.model = model
@@ -1717,8 +2153,15 @@ function View:set_model(model)
 end
 
 ---@return table snapshot { provider=string, model=string, status=string,
----                          items=table, usage=table|nil, busy=boolean }
+---                          items=table, usage=table|nil, busy=boolean,
+---                          input_revision=integer,
+---                          last_submitted_revision=integer|nil,
+---                          context_ids=string[] }
 function View:snapshot()
+  local ctx_ids = {}
+  for _, c in ipairs(self._submitted_context or {}) do
+    ctx_ids[#ctx_ids + 1] = c.id or c.context_id
+  end
   return {
     provider = self.provider_name,
     model = self.model,
@@ -1726,6 +2169,12 @@ function View:snapshot()
     items = vim.deepcopy(self.items or {}),
     usage = self.usage,
     busy = self.orch:is_busy(),
+    -- W3 input revision (chat-ui spec §Input): the next revision to submit
+    -- and the revision of the last accepted capture; context_ids are the ids
+    -- captured by the last accepted submit.
+    input_revision = self._input_revision,
+    last_submitted_revision = self._last_submitted_revision,
+    context_ids = ctx_ids,
   }
 end
 
@@ -2095,11 +2544,21 @@ function M.open()
   -- :MaxaChat 语义（W4-B fix）：continue_last 未设置或 false 时，总是打开一个
   -- 新会话窗口（当前默认视图先 close——close-save 保护已提交消息落盘）。
   -- continue_last=true 时保留原有 open-or-focus + 新视图恢复最近会话的行为。
+  -- W3（chat-ui spec §View lifecycle）：一个经 close_view() 关闭 UI 的视图
+  -- （session 存活、status ~= "closed"）直接在同一会话上重建 UI，不 close
+  -- session；只有真正 attach 的视图才走 close-save + 新建语义。
   local hcfg = M._history_config
   local continue_last = hcfg and hcfg.continue_last == true
   if not continue_last then
     local cur = M._default
     if cur and not cur:_is_closed_view() then
+      -- W3 fix (2026-08-06 user finding): a HIDDEN view (gh) has no visible
+      -- window, so buffer-local `gr` is unreachable — `:MaxaChat` is the global
+      -- restore entry. Restore the same session instead of closing it.
+      if cur._ui_closed or cur._hidden then
+        cur:open()
+        return cur
+      end
       cur:close()
       M._default = nil
     end
@@ -2107,6 +2566,36 @@ function M.open()
   local v = M._get_default()
   v:open()
   return v
+end
+
+--- Hide the default view's window but KEEP the session alive (`:MaxaHide`;
+--- chat-ui spec §View lifecycle `hide`). No-op when no default view exists.
+---@return boolean hidden
+function M.hide()
+  local v = M._default
+  if not v then
+    return false
+  end
+  return v:hide()
+end
+
+--- Reattach the default view's UI over the SAME session (`:MaxaReattach`;
+--- chat-ui spec §View lifecycle `reattach`). A missing/closed default view is
+--- (re)created first (fresh session semantics); a live or close-viewed view is
+--- rebuilt in place.
+---@return boolean ok
+function M.reattach()
+  local v = M._get_default()
+  return v:reattach()
+end
+
+--- Pick context items to attach to the next submit (`:MaxaContext`;
+--- chat-ui spec §Input). Creates the default view when needed; the picked item
+--- joins the view's pending context list and is captured by the next submit
+--- via `opts.context_ids`.
+function M.pick_context()
+  local v = M._get_default()
+  v:_pick_context()
 end
 
 --- Stop the default view's in-flight stream.
@@ -2151,6 +2640,141 @@ function M.context_stop(args)
     return true
   end
   return v:context_stop(args)
+end
+
+----------------------------------------------------------------------------
+-- W6 (phase-5): Action/Command palette (actions-commands-target).
+-- The host adapts a View into the builtin context capability interface
+-- (actions/builtin.lua) and dispatches through the registry. Dispatch
+-- failures are typed results, never exceptions — the Chat stays usable.
+----------------------------------------------------------------------------
+
+---@private Build the actions builtin capability context for a view.
+---@param view table View
+---@return table context
+local function build_action_context(view)
+  local history_api = nil
+  if M._history and type(M._history.save) == "function" then
+    history_api = {}
+    local methods = {
+      "save",
+      "list",
+      "open",
+      "fork",
+      "scratch",
+      "merge",
+      "transfer",
+      "rewind",
+      "redo",
+      "compact",
+      "trace",
+    }
+    for _, m in ipairs(methods) do
+      history_api[m] = function(input)
+        local svc = M._history
+        if not svc or type(svc[m]) ~= "function" then
+          return { ok = false, code = "unavailable", error = "context.history." .. m .. " unavailable" }
+        end
+        local okr, res = pcall(svc[m], svc, input and input.args, input and input.opts)
+        if not okr then
+          return { ok = false, code = "handler_error", error = tostring(res) }
+        end
+        return { ok = true, result = res }
+      end
+    end
+  end
+  return {
+    request_busy = view.orch:is_busy(),
+    set_provider = function(name)
+      return view:set_provider(name)
+    end,
+    set_model = function(model)
+      return view:set_model(model)
+    end,
+    request_control = {
+      stop = function()
+        return view:stop()
+      end,
+      soft_stop = function()
+        return view:soft_stop()
+      end,
+      context_stop = function(target)
+        return view:context_stop(target)
+      end,
+    },
+    clear = function()
+      return view:clear()
+    end,
+    view_control = {
+      hide = function()
+        return view:hide()
+      end,
+      reattach = function()
+        return view:reattach()
+      end,
+      close_view = function()
+        return view:close_view()
+      end,
+    },
+    close_session = function()
+      return view:close()
+    end,
+    history = history_api,
+    spine_snapshot = function()
+      if M._status_service and not M._status_disposed then
+        return M._status_service:snapshot()
+      end
+      return nil
+    end,
+    config = function()
+      local ok, cfg = pcall(require, "maxa.runtime.config")
+      if ok and cfg and cfg.effective then
+        return cfg.effective
+      end
+      return nil
+    end,
+  }
+end
+
+--- Open the Action/Command palette for the default view: discovers registry
+--- items (deterministic order + context predicates), lets the user pick one
+--- through `vim.ui.select`, then dispatches with the view's capability
+--- context. Typed dispatch failures are notified; the Chat is never locked.
+---@return boolean dispatched
+function M.actions_palette()
+  local registry = M._actions
+  if not registry then
+    vim.notify("MaxaActions: actions registry unavailable", vim.log.levels.WARN)
+    return false
+  end
+  local view = M._default
+  if not view or view:_is_closed_view() then
+    view = M._get_default()
+  end
+  local context = build_action_context(view)
+  local items = registry:discover(context)
+  if not items or #items == 0 then
+    vim.notify("MaxaActions: no available actions", vim.log.levels.INFO)
+    return false
+  end
+  vim.ui.select(items, {
+    prompt = "maxa actions",
+    format_item = function(item)
+      return ("%s  ·  %s"):format(item.title or item.id, item.category or "")
+    end,
+  }, function(choice)
+    if not choice then
+      return
+    end
+    local res = registry:dispatch(choice.id, {}, context)
+    if not res.ok then
+      vim.notify(
+        ("MaxaActions: %s failed (%s)"):format(choice.id, tostring(res.code or res.error or "error")),
+        vim.log.levels.WARN
+      )
+    end
+  end)
+  return true
 end
 
 --- Close the default view.
@@ -2561,6 +3185,16 @@ function M.shutdown()
     end
     report.views = report.views + 1
   end
+  -- W6 (phase-5): dispose the status spine service (idempotent) and drop the
+  -- lualine spine registration so late projections stay inert.
+  if M._status_service and not M._status_disposed then
+    local okd, derr = pcall(M._status_service.dispose, M._status_service)
+    M._status_disposed = true
+    status.set_spine(nil)
+    if not okd then
+      report.failures[#report.failures + 1] = { what = "status", error = tostring(derr) }
+    end
+  end
   return report
 end
 
@@ -2634,6 +3268,26 @@ function M.setup()
     desc = "maxa: list saved chats and restore one (optional title/model filter)",
     nargs = "*",
   })
+  -- W6 (phase-5): Action/Command palette (`:MaxaActions`); dispatch failures
+  -- are typed and never lock the Chat.
+  vim.api.nvim_create_user_command("MaxaActions", function()
+    M.actions_palette()
+  end, {
+    desc = "maxa: open the Action/Command palette (registry-backed)",
+    nargs = 0,
+  })
+  -- W4-B: if the history service was injected before setup ran (tests), wire
+  -- keeps the session, reattach rebuilds the UI over the same session, and
+  -- MaxaContext opens the context picker for the next submit.
+  vim.api.nvim_create_user_command("MaxaHide", function()
+    M.hide()
+  end, { desc = "maxa: hide the Chat window but keep the session", nargs = 0 })
+  vim.api.nvim_create_user_command("MaxaReattach", function()
+    M.reattach()
+  end, { desc = "maxa: rebuild the Chat UI over the same session", nargs = 0 })
+  vim.api.nvim_create_user_command("MaxaContext", function()
+    M.pick_context()
+  end, { desc = "maxa: pick context items to attach to the next submit", nargs = 0 })
   -- W4-B: if the history service was injected before setup ran (tests), wire
   -- the auto-save snapshot provider + listen now.
   M._ensure_history_listening()

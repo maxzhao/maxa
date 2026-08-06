@@ -84,6 +84,27 @@ M.SECRET_KEYS = {
   access_key = true,
 }
 
+--- ui 子块允许键（W5；fail-closed：未知子键拒绝）。
+M.UI_KEYS = { show_reasoning = true, layout = true, start_in_insert = true, spinner_delay = true }
+--- Chat 视图布局枚举。
+M.UI_LAYOUTS = { vertical = true, horizontal = true, float = true }
+--- status 子块允许键（W5；fail-closed：未知子键拒绝）。
+M.STATUS_KEYS = { lualine = true, billing = true }
+--- status.lualine 子块允许键。
+M.STATUS_LUALINE_KEYS = { enabled = true, show_spinner = true, show_usage = true }
+--- status.billing 子块允许键。
+M.STATUS_BILLING_KEYS = { enabled = true, provider = true }
+--- orchestrator 子块允许键（W6 补全；fail-closed：未知子键拒绝；与
+--- orchestrator/init.lua ORCHESTRATOR_DEFAULTS 对齐）。
+M.ORCHESTRATOR_KEYS = { tool_concurrency = true, watchdog = true, context_stop = true }
+--- orchestrator.watchdog 子块允许键。
+M.ORCHESTRATOR_WATCHDOG_KEYS = { enabled = true, timeout_ms = true, max_retries = true }
+--- orchestrator.context_stop 子块允许键。
+M.ORCHESTRATOR_CONTEXT_STOP_KEYS = { enabled = true }
+--- 运行时 `.maxa/state.yaml` schema 版本（C-004 分类基准；项目状态文件必须
+--- 与此版本比较以报告 ok / 升级方向 / 无效）。
+M.STATE_SCHEMA_VERSION = 1
+
 --- 当前有效配置树（`configure` 写入；setup 前为 nil）。
 M.effective = nil
 
@@ -442,6 +463,194 @@ local function check_history_block(history)
   return nil
 end
 
+--- Check the `ui` block (W5): Chat view UI defaults (show_reasoning/layout/
+--- start_in_insert/spinner_delay). Fail-closed with typed errors (same style as
+--- check_mcp_block / check_skills_block / check_history_block): unknown keys
+--- rejected; booleans and non-negative integers type-checked.
+---@param ui table|nil ui block
+---@return table|nil err typed error on failure
+local function check_ui_block(ui)
+  if ui == nil then
+    return nil
+  end
+  if type(ui) ~= "table" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "ui block must be a table")
+  end
+  for k in pairs(ui) do
+    if type(k) == "string" and not M.UI_KEYS[k] then
+      return M.error(
+        schema.ERROR.INVALID_ARGUMENT,
+        ("ui: unknown key %q (known: show_reasoning, layout, start_in_insert, spinner_delay)"):format(k)
+      )
+    end
+  end
+  if ui.show_reasoning ~= nil and type(ui.show_reasoning) ~= "boolean" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "ui.show_reasoning must be a boolean")
+  end
+  if ui.layout ~= nil and (type(ui.layout) ~= "string" or not M.UI_LAYOUTS[ui.layout]) then
+    return M.error(
+      schema.ERROR.INVALID_ARGUMENT,
+      "ui.layout must be one of vertical, horizontal, float (got " .. vim.inspect(ui.layout) .. ")"
+    )
+  end
+  if ui.start_in_insert ~= nil and type(ui.start_in_insert) ~= "boolean" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "ui.start_in_insert must be a boolean")
+  end
+  if ui.spinner_delay ~= nil then
+    local sd = ui.spinner_delay
+    if type(sd) ~= "number" or math.floor(sd) ~= sd or sd < 0 then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "ui.spinner_delay must be a non-negative integer (ms)")
+    end
+  end
+  return nil
+end
+
+--- Check the `status` block (W5): global status projection switches
+--- (status.lualine / status.billing). Fail-closed with typed errors (same style
+--- as the other check_*_block helpers): unknown keys rejected; lualine flags are
+--- booleans; billing.provider is nil, a function, or a module name.
+---@param status table|nil status block
+---@return table|nil err typed error on failure
+local function check_status_block(status)
+  if status == nil then
+    return nil
+  end
+  if type(status) ~= "table" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "status block must be a table")
+  end
+  for k in pairs(status) do
+    if type(k) == "string" and not M.STATUS_KEYS[k] then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, ("status: unknown key %q (known: lualine, billing)"):format(k))
+    end
+  end
+  if status.lualine ~= nil then
+    local ll = status.lualine
+    if type(ll) ~= "table" then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "status.lualine must be a table")
+    end
+    for k in pairs(ll) do
+      if type(k) == "string" and not M.STATUS_LUALINE_KEYS[k] then
+        return M.error(
+          schema.ERROR.INVALID_ARGUMENT,
+          ("status.lualine: unknown key %q (known: enabled, show_spinner, show_usage)"):format(k)
+        )
+      end
+    end
+    for _, f in ipairs({ "enabled", "show_spinner", "show_usage" }) do
+      if ll[f] ~= nil and type(ll[f]) ~= "boolean" then
+        return M.error(schema.ERROR.INVALID_ARGUMENT, ("status.lualine.%s must be a boolean"):format(f))
+      end
+    end
+  end
+  if status.billing ~= nil then
+    local bl = status.billing
+    if type(bl) ~= "table" then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "status.billing must be a table")
+    end
+    for k in pairs(bl) do
+      if type(k) == "string" and not M.STATUS_BILLING_KEYS[k] then
+        return M.error(
+          schema.ERROR.INVALID_ARGUMENT,
+          ("status.billing: unknown key %q (known: enabled, provider)"):format(k)
+        )
+      end
+    end
+    if bl.enabled ~= nil and type(bl.enabled) ~= "boolean" then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "status.billing.enabled must be a boolean")
+    end
+    if bl.provider ~= nil and (type(bl.provider) ~= "string" and type(bl.provider) ~= "function") then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "status.billing.provider must be nil, a function, or a module name")
+    end
+    if type(bl.provider) == "string" and bl.provider == "" then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "status.billing.provider must not be an empty module name")
+    end
+  end
+  return nil
+end
+
+--- Check the `orchestrator` block (W6 补全): request/tool orchestration
+--- switches consumed by orchestrator/init.lua resolve_orchestrator_config.
+--- Fail-closed with typed errors (same style as the other check_*_block
+--- helpers): unknown keys rejected; tool_concurrency is a positive integer;
+--- watchdog/context_stop sub-blocks are validated recursively.
+---@param orch table|nil orchestrator block
+---@return table|nil err typed error on failure
+local function check_orchestrator_block(orch)
+  if orch == nil then
+    return nil
+  end
+  if type(orch) ~= "table" then
+    return M.error(schema.ERROR.INVALID_ARGUMENT, "orchestrator block must be a table")
+  end
+  for k in pairs(orch) do
+    if type(k) == "string" and not M.ORCHESTRATOR_KEYS[k] then
+      return M.error(
+        schema.ERROR.INVALID_ARGUMENT,
+        ("orchestrator: unknown key %q (known: tool_concurrency, watchdog, context_stop)"):format(k)
+      )
+    end
+  end
+  if orch.tool_concurrency ~= nil then
+    local tc = orch.tool_concurrency
+    if type(tc) ~= "number" or math.floor(tc) ~= tc or tc < 1 then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "orchestrator.tool_concurrency must be a positive integer")
+    end
+  end
+  if orch.watchdog ~= nil then
+    local wd = orch.watchdog
+    if type(wd) ~= "table" then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "orchestrator.watchdog must be a table")
+    end
+    for k in pairs(wd) do
+      if type(k) == "string" and not M.ORCHESTRATOR_WATCHDOG_KEYS[k] then
+        return M.error(
+          schema.ERROR.INVALID_ARGUMENT,
+          ("orchestrator.watchdog: unknown key %q (known: enabled, timeout_ms, max_retries)"):format(k)
+        )
+      end
+    end
+    if wd.enabled ~= nil and type(wd.enabled) ~= "boolean" then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "orchestrator.watchdog.enabled must be a boolean")
+    end
+    if wd.timeout_ms ~= nil then
+      local tm = wd.timeout_ms
+      if type(tm) ~= "number" or math.floor(tm) ~= tm or tm <= 0 then
+        return M.error(
+          schema.ERROR.INVALID_ARGUMENT,
+          "orchestrator.watchdog.timeout_ms must be a positive integer (ms)"
+        )
+      end
+    end
+    if wd.max_retries ~= nil then
+      local mr = wd.max_retries
+      if type(mr) ~= "number" or math.floor(mr) ~= mr or mr < 0 then
+        return M.error(
+          schema.ERROR.INVALID_ARGUMENT,
+          "orchestrator.watchdog.max_retries must be a non-negative integer"
+        )
+      end
+    end
+  end
+  if orch.context_stop ~= nil then
+    local cs = orch.context_stop
+    if type(cs) ~= "table" then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "orchestrator.context_stop must be a table")
+    end
+    for k in pairs(cs) do
+      if type(k) == "string" and not M.ORCHESTRATOR_CONTEXT_STOP_KEYS[k] then
+        return M.error(
+          schema.ERROR.INVALID_ARGUMENT,
+          ("orchestrator.context_stop: unknown key %q (known: enabled)"):format(k)
+        )
+      end
+    end
+    if cs.enabled ~= nil and type(cs.enabled) ~= "boolean" then
+      return M.error(schema.ERROR.INVALID_ARGUMENT, "orchestrator.context_stop.enabled must be a boolean")
+    end
+  end
+  return nil
+end
+
 local function validate_config(cfg)
   if type(cfg) ~= "table" then
     return M.error(schema.ERROR.INVALID_ARGUMENT, "configure: opts must merge into a table")
@@ -478,6 +687,20 @@ local function validate_config(cfg)
   local herr = check_history_block(cfg.history)
   if herr then
     return herr
+  end
+  -- W5: ui/status blocks (fail-closed, unknown keys rejected).
+  local uerr = check_ui_block(cfg.ui)
+  if uerr then
+    return uerr
+  end
+  local stat_err = check_status_block(cfg.status)
+  if stat_err then
+    return stat_err
+  end
+  -- W6: orchestrator block (fail-closed, unknown keys rejected).
+  local orch_err = check_orchestrator_block(cfg.orchestrator)
+  if orch_err then
+    return orch_err
   end
   return nil
 end
@@ -622,6 +845,50 @@ function M.find_project_root(start)
       schema.ERROR.INVALID_ARGUMENT,
       "find_project_root: no .maxa/ project marker found upward from " .. tostring(start or vim.fn.getcwd())
     )
+end
+
+--- Classify a project's runtime state against the runtime state schema version
+--- (supermax-configuration spec §Runtime defaults): compares
+--- `.maxa/state.yaml:schema_version` with the runtime schema version and reports
+--- `ok` / `project-upgrade-required` / `runtime-upgrade-required` /
+--- `project-version-invalid` / `runtime-version-unavailable`. Missing state
+--- file = `not-initialized`, never an error. Invalid YAML surfaces as a typed
+--- CONFIGURATION error (unreadable state is not silently classified).
+---@param root string project root
+---@param runtime_version? integer|boolean|nil runtime state schema version
+---   (default M.STATE_SCHEMA_VERSION when nil; `false` = runtime version
+---   explicitly unavailable -> `runtime-version-unavailable`)
+---@return table|nil classification { status=string, schema_version=unknown, runtime_version=integer|nil }
+---@return table|nil err typed error on unreadable/invalid state
+function M.classify_state(root, runtime_version)
+  -- nil (absent) = use the bundled runtime schema version (available); `false`
+  -- = the runtime version is explicitly unavailable.
+  local runtime_available = runtime_version ~= false
+  local rv = runtime_version
+  if rv == nil or rv == false then
+    rv = M.STATE_SCHEMA_VERSION
+  end
+  local state, err = M.load_state(root)
+  if err then
+    return nil, err
+  end
+  if state == nil then
+    return { status = "not-initialized", schema_version = nil, runtime_version = rv }, nil
+  end
+  local sv = state.schema_version
+  if type(sv) ~= "number" or math.floor(sv) ~= sv then
+    return { status = "project-version-invalid", schema_version = sv, runtime_version = rv }, nil
+  end
+  if not runtime_available then
+    return { status = "runtime-version-unavailable", schema_version = sv, runtime_version = nil }, nil
+  end
+  if sv == rv then
+    return { status = "ok", schema_version = sv, runtime_version = rv }, nil
+  end
+  if sv < rv then
+    return { status = "project-upgrade-required", schema_version = sv, runtime_version = rv }, nil
+  end
+  return { status = "runtime-upgrade-required", schema_version = sv, runtime_version = rv }, nil
 end
 
 --- Load the project runtime state (`<root>/.maxa/state.yaml`). Missing state file
