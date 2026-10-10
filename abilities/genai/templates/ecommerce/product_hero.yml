@@ -1,0 +1,62 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: ecommerce_product_hero
+category: product
+description: >-
+  Create a commercial ecommerce product hero image or main listing image with
+  believable materials, concise label text, and conversion-focused composition.
+source_inspiration:
+  - ecommerce product hero and packaging workflow concept
+  - genai references/categories/product.md
+recommended_requested_size: 1024x1024
+required_inputs:
+  - product_name
+  - product_type
+  - package_or_subject_description
+  - selling_points
+  - composition_type
+  - materials_and_lighting
+  - brand_style
+optional_inputs:
+  - exact_label_text
+  - ingredient_or_prop_list
+  - background_style
+  - platform_or_placement
+  - negative_space_requirement
+prompt_schema:
+  role: Ecommerce product photographer
+  structure:
+    - Create an ecommerce product hero image for "{{product_name}}".
+    - "Product type: {{product_type}}."
+    - "Subject/package: {{package_or_subject_description}}."
+    - "Exact label text: {{exact_label_text | default: 'use only provided short product name and no extra microtext'}}."
+    - "Selling points: {{selling_points}}."
+    - "Composition: {{composition_type}}; platform/placement: {{platform_or_placement | default: 'commercial product hero'}}."
+    - "Materials and lighting: {{materials_and_lighting}}."
+    - "Brand style: {{brand_style}}; background: {{background_style | default: 'clean studio background'}}."
+    - "Props/ingredients: {{ingredient_or_prop_list | default: 'minimal and relevant only'}}."
+    - Require sharp foreground, realistic material texture, believable shadow, all supplied label text verbatim and readable, and clean negative space.
+    - Avoid fake certification marks, extra logos, invented copy, garbled microtext, and plastic-looking CGI unless requested.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate_or_image_edit
+  requested_size: 1024x1024
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - Use image_edit when the user provides an actual product, label, or package reference.
+    - For multiple product angles or variants, generate one image per request or first output candidate prompts.
+visual_verify:
+  - When mode is image_edit, apply references/image-edit-review-standard.md; accept normal redraw when first-glance product identity and protected invariants hold, without requiring 1:1 pixels or exact seams.
+  - Product shape, packaging, material, and label match the provided description.
+  - Label text is verbatim, readable, and free from garbled microtext.
+  - Required selling points are present and visually clear without clutter.
+  - No fake certifications, unprovided logos, or misleading claims appear.
+  - Lighting, shadow, foreground sharpness, and material realism are commercially plausible.
+failure_repair:
+  - If label text fails, edit only the failed lettering with exact copy and placement while preserving package geometry, brand, layout, and lighting; use deterministic typesetting/compositing for unmet exact-label requirements.
+  - If material looks fake, specify real glass/paper/metal/liquid texture and studio softbox/rim light.
+  - If composition is cluttered, improve prop placement and negative space; remove only unrequested extras, preserving required props and composition.
+  - If unauthorized marks appear, explicitly forbid certifications, badges, third-party logos, and random seal graphics.

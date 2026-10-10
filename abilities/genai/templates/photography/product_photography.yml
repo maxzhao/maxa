@@ -1,0 +1,61 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: photography_product_photography
+category: photography
+description: >-
+  Produce a photorealistic commercial product photograph with plausible camera,
+  lighting, materials, props, and natural imperfections.
+source_inspiration:
+  - genai references/categories/photography.md
+  - genai references/categories/product.md
+recommended_requested_size: 1024x1024
+required_inputs:
+  - product_subject
+  - photography_type
+  - camera_angle
+  - lighting_setup
+  - environment_or_surface
+  - material_details
+  - mood_or_brand_feel
+optional_inputs:
+  - props
+  - depth_of_field
+  - exact_label_text
+  - imperfections
+prompt_schema:
+  role: Commercial product photographer
+  structure:
+    - Create a photorealistic {{photography_type}} of {{product_subject}}.
+    - "Camera/framing: {{camera_angle}}; depth of field: {{depth_of_field | default: 'natural shallow depth of field when appropriate'}}."
+    - "Lighting: {{lighting_setup}}."
+    - "Environment/surface: {{environment_or_surface}}."
+    - "Material details: {{material_details}}."
+    - "Props: {{props | default: 'minimal relevant props only'}}."
+    - "Exact label text: {{exact_label_text | default: 'no extra readable label text unless provided'}}."
+    - "Mood/brand feel: {{mood_or_brand_feel}}."
+    - "Natural imperfections: {{imperfections | default: 'subtle real-world texture, realistic reflections, no sterile CGI look'}}."
+    - Require believable scale, realistic shadows, sharp foreground, and true material texture.
+    - Avoid plastic CGI, over-saturated fantasy colors, fake labels, extra logos, and impossible reflections.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate_or_image_edit
+  requested_size: 1024x1024
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - Use image_edit if the user provides the exact product/package reference.
+    - Camera specifications are appearance cues, not guarantees of physical simulation.
+visual_verify:
+  - When mode is image_edit, apply references/image-edit-review-standard.md; accept normal redraw when first-glance product identity and protected invariants hold, without requiring 1:1 pixels or exact seams.
+  - Product subject, materials, label text, and props match the brief.
+  - Lighting and shadows are physically plausible.
+  - Texture, reflections, and imperfections avoid plastic CGI look.
+  - Composition reads as commercial photography rather than illustration.
+  - No unprovided brands, fake seals, or misleading claims appear.
+failure_repair:
+  - If it looks CGI, add real material texture, natural imperfections, and specific camera/lighting context.
+  - If product identity drifts, use image_edit with a reference and preserve product geometry/label placement.
+  - If label text fails, edit only failed lettering with exact supplied copy and placement, preserving product geometry, composition, and lighting; do not drop required text.
+  - If props clutter the image, reposition required props and remove only unrequested extras.

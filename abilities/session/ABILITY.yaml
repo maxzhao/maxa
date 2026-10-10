@@ -1,0 +1,18 @@
+merge: true
+visibility: global
+triggers:
+  - "compact session"
+  - "compact_self"
+  - "session"
+  - "save_id"
+  - "chat history"
+  - "token usage"
+  - "trace visualization"
+exclude:
+  - "tests/"
+  - ".venv/"
+  - "**/__pycache__/"
+executors:
+  - match: '^/scripts/trace_visualize\.py$'
+    command: [uv, run, --project, '{root}', python, '{script}']
+suite: [agent-development]

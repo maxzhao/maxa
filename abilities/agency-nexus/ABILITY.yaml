@@ -1,0 +1,11 @@
+visibility: global
+triggers:
+  - "multi_agent"
+  - "multi-expert discussion"
+  - "expert team"
+  - "Agency role"
+  - "Agency Soul"
+  - "The Agency"
+exclude:
+  - "agents/"
+suite: [agent-development]

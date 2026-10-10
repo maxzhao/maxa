@@ -1,0 +1,294 @@
+#!/bin/bash
+# =============================================================================
+# runwingui - WSL2 到 Windows GUI 程序启动器
+# =============================================================================
+# 用法:
+#   tools/wingui/runwingui <command> [args...]
+#   tools/wingui/runwingui --start-server
+#   tools/wingui/runwingui --list
+# =============================================================================
+
+set -e
+
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+
+# WSL runtime is owned by this uv project; Windows uses its local Python.
+PYTHON=(uv run --project "$SCRIPT_DIR" --no-sync python)
+
+# 脚本路径
+SERVER_SCRIPT="${SCRIPT_DIR}/server.py"
+CLIENT_SCRIPT="${SCRIPT_DIR}/client.py"
+
+# 颜色
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+# =============================================================================
+# Functions
+# =============================================================================
+
+# 检查服务器是否运行 (带超时)
+check_server() {
+  timeout 2 "${PYTHON[@]}" "$CLIENT_SCRIPT" --health >/dev/null 2>&1
+}
+
+# 启动服务器
+start_server() {
+  if check_server; then
+    echo -e "${YELLOW}Server already running${NC}"
+    return 0
+  fi
+
+  echo -e "Starting WinGUI Bridge Server..."
+
+  # Resolve/sync the local WSL interpreter once, before bounded health polling.
+  uv sync --project "$SCRIPT_DIR" || return 1
+  local win_source source_literal win_bat_path
+  win_source=$(wslpath -w "$SERVER_SCRIPT") || return 1
+  source_literal=${win_source//\'/\'\'}
+  # Executing a UNC .bat triggers Windows security prompts. Generate only the
+  # launcher on Windows; pythonw reads the single authoritative UNC source.
+  win_bat_path=$(powershell.exe -NoProfile -NonInteractive -Command "
+    \$ErrorActionPreference='Stop'
+    [Console]::OutputEncoding=[Text.UTF8Encoding]::new(\$false)
+    \$python=(Get-Command pythonw.exe -ErrorAction Stop).Source.Replace('%','%%')
+    \$source='$source_literal'.Replace('%','%%')
+    \$dir=Join-Path \$env:LOCALAPPDATA 'Maxa\\wingui'
+    [IO.Directory]::CreateDirectory(\$dir) | Out-Null
+    \$path=Join-Path \$dir 'start-server.bat'
+    \$launch='start '+[char]34+[char]34+' /b '+[char]34+\$python+[char]34+' '+[char]34+\$source+[char]34
+    [IO.File]::WriteAllLines(\$path,@('@echo off','chcp 65001 >nul',('cd /d '+[char]34+'%TEMP%'+[char]34),\$launch),[Text.UTF8Encoding]::new(\$false))
+    Write-Output \$path
+  ") || return 1
+  win_bat_path=${win_bat_path//$'\r'/}
+  explorer.exe "$win_bat_path" || true # Explorer may return 1 after successful dispatch.
+
+  # 等待服务器启动 (explorer.exe 启动较慢，需要更长等待时间)
+  local retries=15
+  while [ $retries -gt 0 ]; do
+    sleep 1
+    if check_server 2>/dev/null; then
+      echo -e "${GREEN}Server started${NC}"
+      return 0
+    fi
+    retries=$((retries - 1))
+  done
+
+  echo -e "${RED}Failed to start server${NC}"
+  return 1
+}
+
+# 停止服务器
+stop_server() {
+  if ! check_server; then
+    echo -e "${YELLOW}Server not running${NC}"
+    return 0
+  fi
+
+  echo "Stopping server..."
+
+  # 用 netstat 查找端口对应的 PID，然后用 taskkill 终止
+  local pid
+  pid=$(cmd.exe /c "netstat -ano | findstr :19527 | findstr LISTENING" 2>/dev/null | awk '{print $NF}' | tr -d '\r' | head -1) || true
+
+  if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+    cmd.exe /c "taskkill /F /PID $pid" >/dev/null 2>&1 || true
+  fi
+
+  sleep 1
+  if ! check_server 2>/dev/null; then
+    echo -e "${GREEN}Server stopped${NC}"
+  else
+    echo -e "${RED}Failed to stop server${NC}"
+  fi
+}
+
+# 显示帮助
+show_help() {
+  cat <<'EOF'
+runwingui - WSL2 to Windows GUI Bridge
+
+Execute Windows commands from WSL2 with real-time output streaming.
+Server auto-starts on first command execution.
+
+USAGE:
+    runwingui [OPTIONS] <command> [args...]
+    <stdin> | runwingui <command> [args...]
+
+SERVER MANAGEMENT:
+    --start-server    Start the bridge server
+    --stop-server     Stop the bridge server
+    --restart-server  Restart the bridge server
+    --health          Check server health
+    --list            List running processes
+    --kill <id>       Kill a process by ID
+    --purge           Purge completed processes from memory
+
+COMMAND OPTIONS:
+    --cwd <path>      Set working directory (Windows path)
+    --env KEY=VALUE   Set environment variable (can repeat)
+    --detach          Run in background, print process ID and exit
+    --shell           Run command string through Windows shell
+    --strict          Preserve native argv without legacy PowerShell fallback
+    --timeout <secs>  Windows execution deadline (strict monitored mode)
+    --                End bridge options; all following values are target argv
+    --start-process   Use PowerShell Start-Process (for GUI apps, no output)
+
+STDIN SUPPORT:
+    Pipe data to stdin of the Windows process:
+        echo "print('hello')" | runwingui python
+        cat script.py | runwingui python
+
+OUTPUT BEHAVIOR:
+    - stdout/stderr are streamed in real-time
+    - Exit code is forwarded from Windows process
+    - Ctrl+C terminates the remote Windows process
+
+EXAMPLES:
+    # Run Windows command
+    runwingui cmd /c "dir C:\\"
+
+    # Run with working directory
+    runwingui --cwd "C:\\Projects" cmd /c dir
+
+    # Run Python with stdin
+    echo "print('hello')" | runwingui python
+
+    # Run GUI app (no output capture)
+    runwingui --start-process notepad.exe
+
+    # Run in background
+    runwingui --detach python -m http.server 8000
+
+    # Set environment variable
+    runwingui --env MY_VAR=value cmd /c "echo %MY_VAR%"
+EOF
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+
+case "${1:-}" in
+--start-server)
+  start_server
+  exit $?
+  ;;
+--stop-server)
+  stop_server
+  exit $?
+  ;;
+--restart-server)
+  stop_server
+  sleep 1
+  start_server
+  exit $?
+  ;;
+--health)
+  # 直接检查，不触发自动启动
+  exec "${PYTHON[@]}" "$CLIENT_SCRIPT" --health
+  ;;
+--list)
+  # 直接查询，不触发自动启动
+  exec "${PYTHON[@]}" "$CLIENT_SCRIPT" --list
+  ;;
+--kill)
+  # kill 需要一个参数，不触发自动启动
+  exec "${PYTHON[@]}" "$CLIENT_SCRIPT" --kill "$2"
+  ;;
+--purge)
+  # 清理已完成进程，不触发自动启动
+  exec "${PYTHON[@]}" "$CLIENT_SCRIPT" --purge
+  ;;
+--help | -h)
+  show_help
+  exit 0
+  ;;
+"")
+  show_help
+  exit 0
+  ;;
+esac
+
+# 确保服务器运行
+if ! check_server; then
+  echo -e "${YELLOW}Server not running, starting...${NC}"
+  start_server || exit 1
+  sleep 0.5
+fi
+
+# 分离 runwingui 自己的选项和要传递给 Windows 程序的参数
+# 提取 --cwd, --detach, --start-process, --env 选项（如果有）
+CWD_ARG=""
+DETACH_ARG=""
+START_PROCESS_ARG=""
+ENV_ARGS=()
+SHELL_ARG=""
+STRICT_ARG=""
+TIMEOUT_ARGS=()
+COMMAND_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --)
+    shift
+    COMMAND_ARGS+=("$@")
+    break
+    ;;
+  --strict)
+    STRICT_ARG="--strict"
+    shift
+    ;;
+  --timeout)
+    [[ $# -ge 2 ]] || { echo "Missing value for --timeout" >&2; exit 2; }
+    TIMEOUT_ARGS=("--timeout" "$2")
+    shift 2
+    ;;
+  --cwd)
+    [[ $# -ge 2 ]] || { echo "Missing value for --cwd" >&2; exit 2; }
+    CWD_ARG="--cwd"
+    shift
+    CWD_VAL="$1"
+    shift
+    ;;
+  --detach)
+    DETACH_ARG="--detach"
+    shift
+    ;;
+  --start-process)
+    START_PROCESS_ARG="--start-process"
+    shift
+    ;;
+  --shell)
+    SHELL_ARG="--shell"
+    shift
+    ;;
+  --env)
+    [[ $# -ge 2 ]] || { echo "Missing value for --env" >&2; exit 2; }
+    # 环境变量格式: --env KEY=VALUE
+    shift
+    ENV_ARGS+=("--env" "$1")
+    shift
+    ;;
+  *)
+    COMMAND_ARGS+=("$@")
+    break
+    ;;
+  esac
+done
+
+# 构建客户端参数
+CLIENT_ARGS=()
+[[ -n "$CWD_ARG" ]] && CLIENT_ARGS+=("$CWD_ARG" "$CWD_VAL")
+[[ -n "$DETACH_ARG" ]] && CLIENT_ARGS+=("$DETACH_ARG")
+[[ -n "$SHELL_ARG" ]] && CLIENT_ARGS+=("$SHELL_ARG")
+[[ -n "$STRICT_ARG" ]] && CLIENT_ARGS+=("$STRICT_ARG")
+[[ ${#TIMEOUT_ARGS[@]} -gt 0 ]] && CLIENT_ARGS+=("${TIMEOUT_ARGS[@]}")
+[[ -n "$START_PROCESS_ARG" ]] && CLIENT_ARGS+=("$START_PROCESS_ARG")
+[[ ${#ENV_ARGS[@]} -gt 0 ]] && CLIENT_ARGS+=("${ENV_ARGS[@]}")
+
+# 传递给客户端执行，使用 -- 分隔符确保后续参数不被解析为选项
+exec "${PYTHON[@]}" "$CLIENT_SCRIPT" "${CLIENT_ARGS[@]}" -- "${COMMAND_ARGS[@]}"

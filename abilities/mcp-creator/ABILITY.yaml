@@ -1,0 +1,18 @@
+visibility: global
+triggers:
+  - "MCP Server"
+  - "Native Server"
+  - "External Server"
+  - "tool schema"
+  - "tool result"
+  - "tool output"
+  - "LLM-facing tool contract"
+  - "restart MCPHub"
+  - "restart Neovim"
+  - "Neovim restart"
+  - "chat listener conflict"
+  - "ChatSubmitted hook"
+exclude:
+  - "scripts/restart_nvim_resume_supervisor.py"
+  - "**/__pycache__/"
+suite: [agent-development]

@@ -1,0 +1,2 @@
+[console_scripts]
+scrapling-fetch-mcp = scrapling_fetch_mcp.mcp:run_server

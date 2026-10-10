@@ -1,0 +1,15 @@
+merge: true
+visibility: global
+triggers:
+  - "browser automation"
+  - "browser page interaction"
+  - "browser UI inspection"
+  - "Chromium CDP control"
+  - "cdp_connect"
+  - "browser_start"
+  - "tauri_connect"
+  - "Tauri WebView2 debugging"
+  - "Playwright MCP"
+  - "protected browser access"
+  - "semantic browser backend"
+suite: [web-research, quality-assurance]

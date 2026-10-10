@@ -1,0 +1,5 @@
+name: smx-knowledge::<project-slug>::<short-id>
+schema_version: 1
+created: <ISO8601>
+syncthing_folder_id: smx-knowledge-<project-slug>-<short-id>
+abilities: {}

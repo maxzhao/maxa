@@ -1,0 +1,15 @@
+visibility: global
+triggers:
+  - "Windows desktop automation"
+  - "Windows GUI control"
+  - "Windows screenshot"
+  - "Windows window operations"
+  - "desktop coordinate click"
+  - "Windows clipboard input"
+  - "focus_window"
+  - "winctl"
+  - "winctl-server"
+executors:
+  - match: '^/scripts/winctl\.py$'
+    command: [uv, run, --project, '{root}', python, '{script}']
+suite: [desktop-automation]

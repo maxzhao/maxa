@@ -1,0 +1,11 @@
+visibility: global
+triggers:
+  - "find a skill"
+  - "existing AgentSkill"
+  - "search AgentSkill"
+  - "search MCP server"
+  - "find MCP Server"
+  - "resource scout"
+  - "ClawHub"
+  - "npx skills"
+suite: [software-engineering]

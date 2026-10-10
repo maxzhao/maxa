@@ -1,0 +1,13 @@
+visibility: global
+triggers:
+  - Execute Lua in current Neovim
+  - Neovim runtime inspection
+  - Neovim LSP symbol search
+  - Neovim LSP navigation
+  - Neovim LSP hover and diagnostics
+  - Neovim LSP call relations
+builtin_extensions:
+  - search
+  - read
+  - run
+suite: [agent-development]

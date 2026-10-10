@@ -1,0 +1,13 @@
+../../../bin/scrapling-fetch-mcp,sha256=Ub6B2LtDxdoSEshdnAA49ZpSsw0IFfVLO62fWQc5QPM,367
+scrapling_fetch_mcp-0.2.0.dist-info/INSTALLER,sha256=5hhM4Q4mYTT9z6QB6PGpUAW81PGNFrYrdXMj4oM_6ak,2
+scrapling_fetch_mcp-0.2.0.dist-info/METADATA,sha256=vvc4FY2ClzsyLKPs5Q5arsdA9tujW8Cic8VmK5E4ILM,17321
+scrapling_fetch_mcp-0.2.0.dist-info/RECORD,,
+scrapling_fetch_mcp-0.2.0.dist-info/REQUESTED,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
+scrapling_fetch_mcp-0.2.0.dist-info/WHEEL,sha256=qtCwoSJWgHk21S1Kb4ihdzI2rlJ1ZKaIurTj_ngOhyQ,87
+scrapling_fetch_mcp-0.2.0.dist-info/entry_points.txt,sha256=ojWOlaSY2w2WODMN3hT3qJD-ru4-t0hoy53jHAIQkIg,75
+scrapling_fetch_mcp-0.2.0.dist-info/licenses/LICENSE,sha256=QwcOLU5TJoTeUhuIXzhdCEEDDvorGiC6-3YTOl4TecE,11356
+scrapling_fetch_mcp/__init__.py,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
+scrapling_fetch_mcp/_fetcher.py,sha256=G_3IWtcm3GQG8SKIzLRsD_sliAJfCRGZEMrKTLNZ4qQ,3795
+scrapling_fetch_mcp/_markdownify.py,sha256=OlhIfju9fao3C5AkTaIWVfNmYjmml9WjmwNsGYSfDMw,3154
+scrapling_fetch_mcp/_scrapling.py,sha256=GFBImljVhbQn71yi9vDJBV16UsNR0VKxt1ErBC_3eC0,894
+scrapling_fetch_mcp/mcp.py,sha256=2ATctTN_3RHGxcU2xL0NboVy5vmZDFJDh01DBPZLIZA,3153

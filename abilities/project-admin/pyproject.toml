@@ -1,0 +1,9 @@
+[project]
+name = "maxa-ability-project-admin"
+version = "0.1.0"
+description = "Python runtime environment for the Maxa project-admin Ability"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0.2",
+]
+

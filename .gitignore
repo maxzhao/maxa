@@ -1,8 +1,19 @@
-tt.*
-.tests
-doc/tags
-debug
-.repro
-foo.*
-*.log
-data
+logs/
+lazy-lock.json
+.pytest_cache
+.ruff_cache/
+node_modules
+certificates/
+__pycache__
+tmp
+.venv/
+.env
+.env.*
+!.env.example
+
+bundled/mcp-hub/node_modules/
+tools/request-dump-proxy/logs
+tools/request-dump-proxy/logs-test
+
+# -- extra ignore ---- 
+

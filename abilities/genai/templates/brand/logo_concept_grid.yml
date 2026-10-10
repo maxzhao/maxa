@@ -1,0 +1,59 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: brand_logo_concept_grid
+category: brand-logo
+description: >-
+  Create a logo concept grid or identity direction board for a fictional brand,
+  emphasizing original simple marks, palette-first thinking, and vectorization boundaries.
+source_inspiration:
+  - logo-generator and brand identity workflow concept
+  - genai references/categories/brand-logo.md
+recommended_requested_size: 2048x2048
+required_inputs:
+  - brand_name
+  - industry
+  - audience
+  - brand_personality
+  - deliverable_type
+  - logo_direction
+  - palette
+optional_inputs:
+  - wordmark_requirement
+  - use_cases
+  - symbol_metaphors
+  - typography_direction
+  - background_mode
+prompt_schema:
+  role: Brand identity concept designer
+  structure:
+    - Create a brand identity concept for a fictional brand named "{{brand_name}}".
+    - "Deliverable: {{deliverable_type}}."
+    - "Brand domain: {{industry}}; audience: {{audience}}; personality: {{brand_personality}}."
+    - "Logo direction: {{logo_direction}}; symbol metaphors: {{symbol_metaphors | default: 'original abstract mark only'}}."
+    - "Typography direction: {{typography_direction | default: 'clean, readable, brand-appropriate wordmark'}}."
+    - "Palette-first: {{palette}}."
+    - "Use cases: {{use_cases | default: 'app icon, website header, social avatar'}}."
+    - "Background mode: {{background_mode | default: 'white background concept board'}}."
+    - Keep marks simple, flat, scalable, and original; avoid complex illustration, fake certifications, trademark symbols, third-party platform badges, and existing brand resemblance.
+    - Treat this as raster concept exploration; final SVG/vector production should be created separately.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate
+  requested_size: 2048x2048
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - For multiple concepts, request a grid on one canvas instead of n > 1.
+    - Preserve the exact required wordmark, quote its wording, specify placement and typography, and validate spelling visually.
+visual_verify:
+  - Brand name or required wordmark spelling matches the supplied copy; a mark-only concept does not satisfy a required wordmark.
+  - Marks are simple, scalable, original, and not complex illustrations.
+  - No fake certifications, platform badges, trademark symbols, random letters, or existing brand lookalikes appear.
+  - Response states raster concept versus final SVG/vector boundary when relevant.
+failure_repair:
+  - If wordmark spelling fails, edit only the lettering with exact copy while preserving the mark and layout; use deterministic typesetting if exact lettering remains unmet rather than dropping required text.
+  - If marks are too illustrative, request flat geometric silhouettes and fewer details.
+  - If concepts resemble existing brands, change symbol metaphors and explicitly require original abstract geometry.
+  - If grid is inconsistent, request a clean 2x3 board with equal cells, white background, and one concept per cell.

@@ -1,0 +1,302 @@
+/* ── Grab Mode Indicator ─────────────────────── */
+.grab-note-active .markdown-preview-view {
+  cursor: crosshair;
+}
+
+/* ── Element Highlight ───────────────────────── */
+.grab-note-highlight {
+  outline: 2px solid var(--interactive-accent) !important;
+  outline-offset: 3px;
+  border-radius: 4px;
+  background-color: rgba(var(--color-accent-rgb, 72, 120, 220), 0.08) !important;
+  transition: outline-color 0.15s ease, background-color 0.15s ease;
+}
+
+.grab-note-located {
+  outline: 3px solid var(--color-blue, #3b82f6) !important;
+  outline-offset: 4px;
+  border-radius: 6px;
+  background-color: rgba(59, 130, 246, 0.12) !important;
+  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.12);
+  transition: outline-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* ── Mobile-friendly selected-block action bar ── */
+.grab-note-action-bar {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 14px;
+  background: var(--background-primary);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+
+.grab-note-action-summary {
+  min-width: 0;
+  flex: 1;
+}
+
+.grab-note-action-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.grab-note-action-lines {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.grab-note-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.grab-note-action-buttons button {
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+@media (max-width: 520px) {
+  .grab-note-action-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .grab-note-action-buttons {
+    justify-content: stretch;
+  }
+
+  .grab-note-action-buttons button {
+    flex: 1;
+  }
+}
+
+/* ── Modal ───────────────────────────────────── */
+.grab-note-modal h3 {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.grab-note-meta {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.grab-note-range-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.grab-note-range-label {
+  width: 100%;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.grab-note-range-button {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.grab-note-quote {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 8px 0 16px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--interactive-accent);
+  background: var(--background-secondary);
+  border-radius: 0 4px 4px 0;
+}
+
+.grab-note-quote pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  margin: 0;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.grab-note-input {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.grab-note-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.grab-note-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ── Sidebar ─────────────────────────────────── */
+.grab-note-sidebar {
+  padding: 12px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.grab-note-sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.grab-note-sidebar-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.grab-note-sidebar-count {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+.grab-note-sidebar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.grab-note-sidebar-actions button,
+.grab-note-entry-buttons button {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.grab-note-stop-button {
+  color: var(--text-error);
+}
+
+.grab-note-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 16px 4px;
+}
+
+.grab-note-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.grab-note-entry {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--background-primary);
+  cursor: pointer;
+}
+
+.grab-note-entry:hover {
+  border-color: var(--interactive-accent);
+  background: var(--background-secondary);
+}
+
+.grab-note-entry-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.grab-note-entry-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grab-note-entry-lines {
+  color: var(--text-accent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.grab-note-entry-path {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 8px;
+}
+
+.grab-note-entry-selected {
+  color: var(--text-normal);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 7px 8px;
+  border-left: 2px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  border-radius: 0 4px 4px 0;
+  margin-bottom: 8px;
+}
+
+.grab-note-entry-comment {
+  color: var(--text-normal);
+  font-size: 13px;
+  line-height: 1.45;
+  margin-bottom: 8px;
+}
+
+.grab-note-entry-comment::before {
+  content: "Feedback: ";
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.grab-note-entry-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.grab-note-entry-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

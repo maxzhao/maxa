@@ -1,0 +1,61 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: character_character_sheet
+category: character
+description: >-
+  Create a clear character concept sheet or full-body design sheet with stable
+  identity, silhouette, costume motifs, palette, and optional callouts.
+source_inspiration:
+  - genai references/categories/character.md
+recommended_requested_size: 1024x1536
+required_inputs:
+  - character_name
+  - identity_role
+  - silhouette_and_pose
+  - face_hair_expression
+  - costume_accessories_materials
+  - palette
+  - style_boundary
+optional_inputs:
+  - worldbuilding_context
+  - callout_labels
+  - secondary_views
+  - do_not_add
+prompt_schema:
+  role: Character concept artist
+  structure:
+    - Create a character design sheet for "{{character_name}}".
+    - "Identity/role: {{identity_role}}."
+    - "Silhouette and main pose: {{silhouette_and_pose}}."
+    - "Face, hair, and expression: {{face_hair_expression}}."
+    - "Costume, accessories, and materials: {{costume_accessories_materials}}."
+    - "Palette: {{palette}}."
+    - "World/context: {{worldbuilding_context | default: 'only subtle context, not a busy background'}}."
+    - "Views/panels: {{secondary_views | default: 'one full-body hero view with small detail callouts if useful'}}."
+    - "Callout labels: {{callout_labels | default: 'short labels only, no long paragraphs'}}."
+    - "Style boundary: {{style_boundary}}."
+    - "Do not add: {{do_not_add | default: 'extra characters, random logos, random text, extra limbs'}}."
+    - Preserve the same face, outfit motifs, proportions, and palette across all panels.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate_or_image_edit
+  requested_size: 1024x1536
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - Use image_edit if continuing from a reference character image.
+    - For multi-pose action sheets, adapt secondary_views to list the requested poses and repeat defining face, hair, proportions, costume, and palette.
+visual_verify:
+  - When mode is image_edit, apply references/image-edit-review-standard.md; accept normal redraw when first-glance character identity and protected invariants hold, without requiring 1:1 pixels or exact seams.
+  - Character identity, face, hair, costume motifs, and palette remain consistent.
+  - Silhouette and pose match the brief and are readable.
+  - Costume materials and accessories are visible without clutter.
+  - Hands/limbs are plausible; no extra limbs or random characters appear.
+  - Labels, if present, are short and readable.
+failure_repair:
+  - If identity drifts across panels, reuse the approved character reference and repeat face/hair/costume invariants without dropping required views.
+  - If costume is unclear, specify the placement, materials, and visibility of required garments/accessories without removing requested details.
+  - If anatomy fails, clarify body framing, limb pose, gaze, and hand/tool contact while preserving the requested action.
+  - If random text appears, forbid all text except provided callout labels.

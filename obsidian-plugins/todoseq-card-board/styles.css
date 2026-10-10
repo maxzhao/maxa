@@ -1,0 +1,1076 @@
+:root {
+  --font-normal:16px;
+  --font-small:13px;
+  --font-smaller:12px;
+
+  --normal-weight:400;   /* Switch to 300 if you want thinner default text */
+  --bold-weight:600;     /* Switch to 700 if you want thicker bold text */
+
+  --border-width:1px;
+
+  --text-title-h1: var(--text-normal);
+}
+
+.workspace-leaf-content[data-type='todoseq-card-board-view'] .view-content {
+  padding: 0;
+  overflow: hidden;
+  height: 100%;
+  min-height: 0;
+}
+
+.workspace-leaf-content[data-type='todoseq-card-board-view'] #elm-node {
+  height: 100%;
+  min-height: 0;
+}
+
+.todoseq-card-board-container .modal.mod-settings .vertical-tab-header::after {
+  display: none;
+  content: "";
+}
+
+.todoseq-card-board-view,
+.todoseq-card-board-container,
+.todoseq-card-board-page,
+.todoseq-card-board-board-frame {
+  height: 100%;
+  min-height: 0;
+}
+
+.todoseq-card-board-view {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--background-primary);
+  font-size: var(--font-text-size);
+}
+
+.todoseq-card-board-container,
+.todoseq-card-board-page,
+.todoseq-card-board-board-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+}
+
+.mod-macos.is-hidden-frameless:not(.is-popout-window) .workspace .workspace-tabs.mod-top-right-space .todoseq-card-board-view .workspace-tab-header-container {
+  padding-right: 0;
+}
+
+.workspace-split.mod-root .todoseq-card-board-view .workspace-tab-header.is-active::before, .workspace-split.mod-root .todoseq-card-board-view .workspace-tab-header.is-active::after {
+  box-shadow: inset 0 0 0 var(--tab-outline-width) var(--tab-outline-color), 0 0 0 calc(var(--tab-curve) * 4) var(--background-primary);
+}
+.workspace-tabs.mod-top-left-space .todoseq-card-board-view .todoseq-card-board-container .workspace-tab-header-container:before {
+  width: 0;
+}
+
+.todoseq-card-board-view .workspace-drop-overlay {
+  transition: none;
+  will-change: top, left, width, height;
+  transform: '';
+  margin-top: var(--header-height);
+}
+
+.todoseq-card-board-view .workspace-tab-header {
+  cursor: grab;
+}
+
+.todoseq-card-board-view .workspace-tab-header.is-active {
+  background-color: var(--background-primary);
+}
+
+.todoseq-card-board-tab-header-spacer {
+  display: flex;
+  flex-grow: 1;
+  flex-shrink: 1;
+  margin-left: -15px;
+  -webkit-app-region: no-drag;
+}
+
+body:not(.is-grabbing):not(.is-fullscreen) .workspace-tabs.mod-top .todoseq-card-board-view .workspace-tab-header-spacer {
+  -webkit-app-region: no-drag;
+}
+body:not(.is-grabbing):not(.is-fullscreen).is-hidden-frameless .mod-top .todoseq-card-board-view .workspace-tab-header-container {
+  -webkit-app-region: no-drag;
+}
+
+.todoseq-card-board-view .sidebar-toggle-button {
+  padding-left: 5px;
+  margin-right: -5px;
+  padding-top: 11px;
+}
+
+.multiSelect-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+}
+
+.multiSelect-item-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1em;
+  line-height: 1;
+  padding: 0 0.2em;
+}
+
+.multiSelect-item-remove:hover,
+.multiSelect-item-remove:focus {
+  color: var(--text-normal);
+}
+
+.todoseq-card-board-boards {
+  display: grid;
+  padding: 1em;
+  padding-bottom: 0.5em;
+  background-color: var(--background-primary);
+  overflow-x: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.todoseq-card-board-board {
+  grid-column-start: 1;
+  grid-row-start: 1;
+  min-height: 0;
+}
+
+.todoseq-card-board-column-with-beacons {
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+}
+
+.todoseq-card-board-columns {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.todoseq-card-board-columns::after {
+  content: "";
+  flex: 0 0 1em;
+}
+
+.todoseq-card-board-column {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.6em 1em 1em 1em;
+  margin-right: 15px;
+  width: 20em;
+  cursor: grab;
+  background-color: var(--background-secondary);
+  border-radius: 3px;
+  border: var(--border-width) solid var(--background-modifier-border);
+}
+
+div[dir=rtl] .todoseq-card-board-column {
+  margin-left: 15px;
+  margin-right: 0;
+}
+
+.todoseq-card-board-column.collapsed {
+  width: 2em;
+  min-width: 2em;
+  flex-grow: 0;
+  overflow: visible;
+  margin: 0;
+  margin-right: 15px;
+  padding: 0.6em 0 0 0.3em;
+}
+
+div[dir=rtl] .todoseq-card-board-column.collapsed {
+  margin-left: 15px;
+  margin-right: 0;
+  padding: 0.6em 0.3em 0 0;
+}
+
+.todoseq-card-board-column-header {
+  font-weight: var(--bold-weight);
+  margin-bottom: 0.6em;
+  display: flex;
+  align-items: center;
+}
+
+
+div[dir=ltr] .todoseq-card-board-column.collapsed .todoseq-card-board-column-header {
+  writing-mode: vertical-lr;
+}
+
+div[dir=rtl] .todoseq-card-board-column.collapsed .todoseq-card-board-column-header {
+  writing-mode: vertical-rl;
+}
+
+.todoseq-card-board-column.collapsed .todoseq-card-board-column-header .sub-text {
+  font-weight: var(--normal-weight);
+  margin-top: 0.3em;
+  margin-bottom: 0.3em;
+}
+
+.arrow-down {
+  width: 0;
+  height: 0;
+  border-left: 0.4em solid transparent;
+  border-right: 0.4em solid transparent;
+  border-top: 0.4em solid var(--text-normal);
+  margin: 0.5em 0 0.5em 0;
+  cursor: pointer;
+}
+
+div[dir=rtl] .arrow-down {
+  order: 3;
+}
+
+div[dir=ltr] .arrow-right {
+  width: 0;
+  height: 0;
+  border-top: 0.4em solid transparent;
+  border-bottom: 0.4em solid transparent;
+  border-left: 0.4em solid var(--text-normal);
+  margin: 0 0.4em 0 -0.2em;
+  cursor: pointer;
+}
+
+div[dir=rtl] .arrow-right {
+  width: 0;
+  height: 0;
+  border-top: 0.4em solid transparent;
+  border-bottom: 0.4em solid transparent;
+  border-right: 0.4em solid var(--text-normal);
+  margin: 0 -0.2em 0 0.4em;
+  cursor: pointer;
+}
+
+ul.todoseq-card-board-column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  flex: 1 1 auto;
+  min-height: 12em;
+  max-height: none;
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+
+ul.todoseq-card-board-column-list > li.todoseq-card-board-card::before {
+  content: "";
+}
+
+.todoseq-card-board-column.collapsed .todoseq-card-board-card {
+  display: none;
+}
+
+.todoseq-card-board-card {
+  border-radius: 6px;
+  border: var(--border-width) solid var(--background-modifier-border);
+  background-color: var(--background-primary);
+  padding: 0;
+  cursor: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  grid-column-gap: 0.35em;
+  display: grid;
+  grid: "mark contents"
+        / 5px minmax(0, 1fr);
+  font-family: var(--font-text);
+}
+
+.todoseq-card-board-card-highlight-area {
+  grid-area: mark;
+}
+
+.todoseq-card-board-card-highlight-area.critical {
+  background-color: var(--text-error);
+}
+
+.todoseq-card-board-card-highlight-area.good {
+  background-color: var(--text-success);
+}
+
+.todoseq-card-board-card-highlight-area.important {
+  background-color: var(--text-accent);
+}
+
+.todoseq-card-board-card-content-area {
+  grid-area: contents;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  min-width: 0;
+  padding: 0.45em 0.55em 0.45em 0.25em;
+}
+
+.todoseq-card-board-card-main-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35em;
+  min-width: 0;
+}
+
+.todoseq-card-board-card input.task-list-item-checkbox {
+  flex: 0 0 auto;
+  margin: 0.2em 0 0;
+  width: 1em;
+  height: 1em;
+  font-size: 1em;
+}
+
+.todoseq-card-board-card input.task-list-item-checkbox:after {
+  width: 1em;
+  height: 1em;
+  font-size: 1em;
+}
+
+.todoseq-card-board-card input.task-list-item-checkbox[data-task='/'] {
+  background-color: color-mix(in srgb, var(--interactive-accent, #7f6df2) 33%, transparent);
+}
+
+.todoseq-card-board-state-keyword {
+  flex: 0 0 auto;
+  appearance: none;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  min-height: 0 !important;
+  height: auto !important;
+  padding: 0 !important;
+  margin: 0.05em 0 0 !important;
+  color: var(--interactive-accent);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: var(--bold-weight);
+  font-size: 0.85em;
+  line-height: 1.35;
+}
+
+.todoseq-card-board-state-keyword:hover {
+  text-decoration: underline;
+}
+
+.todoseq-card-board-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-weight: var(--bold-weight);
+  display: -webkit-box;
+  color: var(--text-title-h1);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.35;
+}
+
+.todoseq-card-board-card-title p {
+  display: inline;
+}
+
+.todoseq-priority-badge {
+  flex: 0 0 auto;
+  display: inline-block;
+  padding: 0 var(--size-2-2);
+  border-radius: var(--radius-s);
+  background-color: var(--background-modifier-accent, var(--interactive-accent));
+  color: var(--text-on-accent);
+  font-weight: var(--font-medium);
+  font-size: 0.7rem;
+  line-height: 1.3;
+  margin-top: 0.15em;
+}
+
+.todoseq-priority-badge.priority-high {
+  background-color: var(--color-red);
+}
+
+.todoseq-priority-badge.priority-med {
+  background-color: var(--interactive-accent);
+}
+
+.todoseq-priority-badge.priority-low {
+  background-color: var(--background-modifier-border);
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--background-modifier-border);
+}
+
+.todoseq-card-board-card-todoseq-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25em 0.35em;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.todoseq-card-board-card-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.05em 0.35em;
+  border-radius: var(--radius-s);
+  background-color: color-mix(in srgb, var(--background-secondary) 88%, transparent);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.todoseq-card-board-card-meta-icon {
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+
+.todoseq-card-board-card-meta-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.todoseq-card-board-card-subtasks-area {
+  border-left: var(--border-width) solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-small);
+  margin: 0.15em 0 0 0.25em;
+  padding-left: 0.55em;
+}
+
+/* fixes an issue with themes showing border on the left of lists */
+.todoseq-card-board-card-subtasks-area > ul::before {
+  border-style: none;
+}
+
+.todoseq-card-board-card-subtasks-area ul {
+  margin-block-start: 0.15em;
+  margin-block-end: 0;
+  padding-inline-start: 0;
+}
+
+.todoseq-card-board-card-subtask {
+  display: grid;
+  gap: 0.3em;
+  grid: "checkbox title"
+        / auto minmax(0, 1fr);
+  align-items: start;
+  opacity: 0.92;
+}
+
+.todoseq-card-board-card-subtask .task-list-item-checkbox {
+  font-size: var(--font-small);
+  transform: scale(0.9);
+  transform-origin: top left;
+}
+
+.todoseq-card-board-card-subtask .todoseq-card-board-card-title {
+  color: var(--text-muted);
+  font-weight: var(--normal-weight);
+  font-size: var(--font-small);
+  -webkit-line-clamp: 1;
+}
+
+.todoseq-card-board-card-subtasks-toggle {
+  appearance: none;
+  align-self: flex-start;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-small);
+  height: auto !important;
+  line-height: 1.2;
+  margin: 0.2em 0 0 0;
+  min-height: 0 !important;
+  padding: 0 !important;
+}
+
+.todoseq-card-board-card-subtasks-toggle:hover,
+.todoseq-card-board-card-subtasks-toggle:focus {
+  color: var(--text-normal);
+  text-decoration: underline;
+}
+
+.todoseq-card-board-card-notes-area {
+  font-size: var(--font-small);
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.todoseq-card-board-card-notes-area > ul::before {
+  border-style: none;
+}
+
+.todoseq-card-board-card-notes-area button {
+  font-size: var(--font-small);
+  padding: 0.5em 0.5em;
+  line-height: 1em;
+  height: auto;
+}
+
+.todoseq-card-board-card-footer-area {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5em;
+  font-size: var(--font-small);
+  min-width: 0;
+}
+
+.todoseq-card-board-card-source {
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todoseq-card-board-card-action-area-buttons {
+  display: grid;
+  grid-auto-flow: column;
+  grid-gap: 0.5em;
+  margin: 0;
+}
+
+.todoseq-card-board-card-action-area-button {
+  cursor: pointer;
+  color: var(--text-muted);
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+}
+
+.todoseq-card-board-card-action-area-button:hover {
+  color: var(--text-normal);
+}
+
+.setting-items-inner {
+  position: relative;
+  height: auto;
+}
+
+.todoseq-card-board-settings-columns-list {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+h3.setting-heading-compact {
+  margin-block-end: 0;
+}
+
+.example-stamp {
+  font-weight: var(--bold-weight);
+}
+
+.todoseq-card-board-settings-column-item {
+  display: grid;
+  grid-template-columns: 2em 5em 1fr 1fr 1.5em;
+  align-items: center;
+  gap: var(--size-4-2);
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: 4px;
+  background-color: var(--background-secondary);
+  width: 100%;
+  padding: var(--size-4-1) var(--size-4-2);
+  margin-bottom: 0.4em;
+}
+
+.todoseq-card-board-settings-column-item-button {
+  display: grid;
+  align-items: center;
+  cursor: pointer;
+}
+
+.todoseq-card-board-settings-column-item-detail {
+  display: grid;
+  align-items: center;
+}
+
+.todoseq-card-board-settings-column-item-type {
+  font-size: 0.7em;
+}
+
+.todoseq-card-board-settings-column-item-controls {
+  display: flex;
+  flex-flow: row nowrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.todoseq-card-board-settings-columns-button {
+  padding-bottom: 0.75em;
+}
+
+.vertical-tab-header-group-title-icon {
+  justify-self: end;
+  cursor: pointer;
+  float: right;
+}
+
+.modal.edit-date {
+  overflow: visible;
+}
+
+.modal.mod-settings {
+  width: 80%;
+}
+
+.todoseq-card-board-view .todoseq-card-board-dragable {
+  cursor: grab;
+}
+
+.todoseq-card-board-view .vertical-tab-nav-item {
+  padding-right: 1.5em;
+  min-height: 1.9em;
+}
+
+.modal-form {
+  display: grid;
+  grid-gap: 1.5em;
+  padding-top: 1.3em;
+  padding-bottom: 1.5em;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.form-item {
+  display: grid;
+  grid: "words control";
+}
+
+.form-item-name {
+  grid-area: words;
+}
+
+.form-item-control {
+  grid-area: control;
+  justify-self: end;
+}
+
+.dialog-buttons {
+  display: grid;
+  grid-auto-flow: column;
+  justify-content: center;
+  padding-top: 2em;
+}
+
+.modal-form .dialog-buttons {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.setting-item-control textarea {
+  min-height: 10em;
+  min-width: 22em;
+}
+
+.multiselect-items {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  color: var(--text-normal);
+  padding: 4px 5px;
+  font-size: var(--font-small);
+  min-width: 217px;
+  max-width: 417px;
+  overflow-x: auto;
+  gap: 3px;
+}
+
+.multiselect-items.mod-faux {
+  justify-content: flex-end;
+  background: var(--background-modifier-form-field);
+  border: 0px;
+  font-size: var(--font-ui-medium);
+}
+
+.multiselect-items input.multiselect-input {
+  border: 0;
+  min-width: 100px;
+  font-size: var(--font-small);
+}
+
+.multiselect-items input.multiselect-input:focus {
+  border: 0;
+  box-shadow: none;
+}
+
+.multiselect-item {
+  white-space: nowrap;
+}
+
+.multiselect-item.selected {
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.multiselect-item-key {
+  background-color: var(--background-secondary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-right: 0px;
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+  padding-left: 4px;
+  padding-right: 4px;
+  padding-bottom: 2px;
+  line-height: 1.5em;
+  vertical-align: middle;
+}
+
+.multiselect-item-single {
+  background-color: var(--background-secondary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding-left: 4px;
+  padding-right: 4px;
+  padding-bottom: 2px;
+  line-height: 1.5em;
+  vertical-align: middle;
+}
+
+.multiselect-item.selected .multiselect-item-key {
+  background-color: var(--text-muted);
+  color: var(--text-on-accent);
+  border-right: 0.5px solid var(--text-on-accent);
+}
+
+.multiselect-item.selected .multiselect-item-value {
+  background-color: var(--text-muted);
+  color: var(--text-on-accent);
+}
+
+.multiselect-items input.multiselect-input {
+  padding: 2px;
+}
+
+.multiselect-item-value {
+  background-color: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-left: 0px;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+  padding-left: 4px;
+  padding-right: 4px;
+  padding-bottom: 2px;
+  line-height: 1.5em;
+  vertical-align: middle;
+}
+
+
+.todoseq-card-board-view .vertical-tab-content {
+  position: relative;
+}
+
+.todoseq-card-board-view .modal-close-button {
+  z-index: 1;
+}
+
+.todoseq-card-board-view .suggestion-container {
+  position: absolute;
+  display: grid;
+  grid-auto-flow: row;
+  grid-gap: 0.5em;
+  overflow: auto;
+  padding: 5px 8px;
+  font-size: var(--font-small);
+  text-align: left;
+  line-height: 1em;
+  max-height: 400px;
+}
+
+.todoseq-card-board-view .suggestion-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.todoseq-card-board-view .suggestion-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.todoseq-card-board-view .suggestion-container::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.todoseq-card-board-view .suggestion-section {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 0.5em;
+}
+
+.todoseq-card-board-view .suggestion-section:first-child {
+  border-top: none;
+}
+
+.todoseq-card-board-view .suggestion-section-heading {
+  color: var(--text-faint);
+  font-size: var(--font-smaller);
+  font-weight: var(--bold-weight);
+  margin-bottom: 3px;
+}
+
+.todoseq-card-board-view .suggestion-item {
+  padding-left: 5px;
+  font-size: var(--font-small);
+  line-height: 1.3em;
+}
+
+.setting-item-control .suggestion-item:hover {
+  background-color: var(--background-secondary);
+}
+
+
+
+.datepicker-container {
+  position: relative;
+}
+
+.datepicker-input:focus {
+  outline: 0;
+}
+
+.datepicker-input.datepicker-error {
+  background-color: rgba(var(--background-modifier-error-rgb), 0.2);
+}
+
+.datepicker-picker {
+  position: absolute;
+  border: 1px solid #CCC;
+  border-radius: 3px;
+  z-index: 100;
+  background-color: white;
+}
+
+.datepicker-header, .datepicker-weekdays {
+  background: var(--background-secondary);
+}
+
+.datepicker-header {
+  display: flex;
+  align-items: center;
+}
+
+.datepicker-month-container {
+  flex: 1 1 auto;
+  padding-top: 0.5em;
+  display: flex;
+  flex-direction: column;
+}
+
+.datepicker-month, .datepicker-year {
+  flex: 1 1 auto;
+  cursor: default;
+  text-align: center;
+}
+
+.datepicker-year {
+  font-size: var(--font-small);
+  font-weight: 700;
+}
+
+.datepicker-this-month-jump-container {
+  text-align: center;
+  background: var(--background-secondary);
+}
+
+.datepicker-this-month-jump {
+  cursor: pointer;
+  color: var(--interactive-accent);
+}
+
+.datepicker-prev-container, .datepicker-next-container {
+  cursor: pointer;
+  padding: 8px;
+}
+
+.datepicker-prev, .datepicker-next {
+  display: block;
+  width: var(--font-smaller);
+  height: var(--font-smaller);
+  border-left: 2px solid rgba(0,0,0,0.54);
+  border-bottom: 2px solid rgba(0,0,0,0.54);
+}
+
+.datepicker-prev:hover, .datepicker-next:hover {
+  border-left-color: #BBB;
+  border-bottom-color: #BBB;
+}
+
+.datepicker-prev {
+  transform: rotate(45deg);
+}
+
+.datepicker-next {
+  transform: rotate(-135deg);
+}
+
+.datepicker-table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  font-size: var(--font-smaller);
+}
+
+.datepicker-table td {
+  width: 2em;
+  height: 2em;
+  text-align: center;
+  border-radius: 3px;
+}
+
+.datepicker-dow {
+  border-bottom: 1px solid #CCC;
+  cursor: default;
+}
+
+.datepicker-day {
+  cursor: pointer;
+}
+.datepicker-day:hover {
+  background: #F2F2F2;
+}
+
+.datepicker-disabled {
+  cursor: default;
+  color: #DDD;
+}
+.datepicker-disabled:hover {
+  background: inherit;
+}
+
+.datepicker-picked {
+  color: white;
+  background: var(--interactive-accent);
+}
+
+.datepicker-picked:hover {
+  background: var(--interactive-accent);
+}
+
+.datepicker-today {
+  font-weight: bold;
+  color: var(--interactive-accent);
+}
+
+.datepicker-other-month {
+  color: #AAA;
+}
+
+.datepicker-other-month.datepicker-disabled {
+  color: #EEE;
+}
+
+.datepicker-other-month.datepicker-picked {
+  color: white;
+}
+
+.todoseq-card-board-card-todoseq-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-flow: row wrap;
+  gap: 0.25em;
+  margin: 0.4em 0.2em 0 0.2em;
+  font-size: var(--font-smaller);
+}
+
+.todoseq-card-board-card-meta-badge {
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  padding: 0.1em 0.35em;
+}
+
+.todoseq-card-board-card-meta-label {
+  color: var(--text-faint);
+}
+
+.todoseq-card-board-task-edit-modal .setting-item {
+  align-items: flex-start;
+}
+
+.todoseq-card-board-task-edit-subtitle {
+  color: var(--text-muted);
+  margin-top: -0.5em;
+}
+
+.todoseq-card-board-task-edit-error {
+  border: var(--border-width) solid var(--background-modifier-error);
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-error-hover);
+  color: var(--text-error);
+  padding: var(--size-4-2);
+  margin-bottom: var(--size-4-2);
+}
+
+.todoseq-card-board-task-edit-text {
+  min-height: 5em;
+  width: min(100%, 34em);
+}
+
+.todoseq-card-board-task-edit-readonly {
+  margin-top: var(--size-4-4);
+  border-top: var(--border-width) solid var(--background-modifier-border);
+  padding-top: var(--size-4-3);
+}
+
+.todoseq-card-board-task-edit-readonly-row {
+  display: grid;
+  grid-template-columns: minmax(7em, 0.35fr) minmax(0, 1fr);
+  gap: var(--size-4-2);
+  padding: 0.2em 0;
+  font-size: var(--font-small);
+}
+
+.todoseq-card-board-task-edit-readonly-label {
+  color: var(--text-muted);
+  font-weight: var(--font-semibold);
+}
+
+.todoseq-card-board-task-edit-readonly-value {
+  overflow-wrap: anywhere;
+}
+
+.todoseq-card-board-task-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-4);
+}
+
+@media (max-width: 600px) {
+  .todoseq-card-board-card-action-area-button {
+    min-width: 2.4em;
+    min-height: 2.4em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .todoseq-card-board-task-edit-modal .setting-item {
+    flex-direction: column;
+    gap: var(--size-4-2);
+  }
+
+  .todoseq-card-board-task-edit-modal input,
+  .todoseq-card-board-task-edit-modal select,
+  .todoseq-card-board-task-edit-modal textarea {
+    min-height: 2.6em;
+    width: 100%;
+  }
+
+  .todoseq-card-board-task-edit-readonly-row {
+    grid-template-columns: 1fr;
+  }
+
+  .todoseq-card-board-task-edit-actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--modal-background);
+    padding-top: var(--size-4-2);
+  }
+}

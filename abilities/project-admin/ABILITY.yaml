@@ -1,0 +1,38 @@
+visibility: global
+triggers:
+  - "project-admin"
+  - "initialize .maxa"
+  - "sync .maxa"
+  - "project knowledge Vault"
+  - "project knowledge governance"
+  - "migrate .maxa"
+  - "upgrade .maxa"
+  - "Maxa project upgrade"
+  - "v0 to v1 root Vault layout"
+  - "Obsidian"
+  - "Vault"
+  - "knowledge base"
+  - "knowledge weave"
+  - "weave knowledge"
+  - "maintain weave"
+  - "check weave"
+  - "wiki to weave migration"
+  - "wikilink"
+  - "feedback"
+  - "TODOseq"
+  - "TODO item"
+  - "SCHEDULED"
+  - "DEADLINE"
+  - "inbox curation"
+  - "capture review"
+  - "self-improvement knowledge curation"
+  - "clean inbox"
+exclude:
+  - "SYSTEM.md"
+  - "**/__pycache__/"
+  - "scripts/project_vault_ownership.py"
+  - "scripts/project_vault_cli.sh"
+executors:
+  - match: '^/scripts/\(project_knowledge_sync\|project_knowledge_vault\|list_large_code_files\|note_titles\|vault_doc_sizes\|inbox_curation\|watch_feedback\|sync_dev_plugins_to_project_vault\|sync_project_plugins\)\.py$'
+    command: [uv, run, --project, '{root}', python, '{script}']
+suite: [project-management]

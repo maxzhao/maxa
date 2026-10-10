@@ -1,0 +1,61 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: infographic_technical_architecture
+category: infographic
+description: >-
+  Generate a clean technical architecture, system pipeline, or engineering
+  diagram with explicit modules, arrows, legends, and readable labels.
+source_inspiration:
+  - genai references/categories/infographic.md
+  - genai references/categories/scientific-figure.md
+recommended_requested_size: 1536x1024
+required_inputs:
+  - system_name
+  - audience
+  - diagram_type
+  - modules
+  - connections
+  - exact_labels
+  - legend_or_color_semantics
+optional_inputs:
+  - reading_direction
+  - deployment_context
+  - risk_or_failure_modes
+  - style_boundary
+prompt_schema:
+  role: Technical diagram designer
+  structure:
+    - Create a landscape technical architecture diagram titled "{{system_name}}".
+    - "Audience: {{audience}}."
+    - "Diagram type: {{diagram_type}}; reading direction: {{reading_direction | default: 'left-to-right'}}."
+    - "Modules: {{modules}}."
+    - "Connections/arrows: {{connections}}."
+    - "Exact block labels: {{exact_labels}}."
+    - "Legend/color semantics: {{legend_or_color_semantics}}."
+    - "Deployment context: {{deployment_context | default: 'not shown unless useful'}}."
+    - "Risks/failure modes: {{risk_or_failure_modes | default: 'omit unless requested'}}."
+    - "Style: {{style_boundary | default: 'clean whitepaper diagram, white background, restrained blue/gray palette, generous margins'}}."
+    - Require crisp readable labels, clean arrows, aligned blocks, consistent color coding, and no random formulas.
+    - Preserve every supplied module, connection, label, value, and legend entry; do not invent or omit content.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate
+  requested_size: 1536x1024
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - Use references/preflight.md for supported quality and resolution options when text or diagram detail is unresolved.
+    - Preserve supplied labels and explanations; use explicit placement and grouping to keep blocks readable.
+visual_verify:
+  - All requested modules appear once and are labeled correctly.
+  - Arrows follow the requested connections and reading direction.
+  - Legend/color semantics are visible and consistent.
+  - Labels are readable; no random equations, pseudocode, or unlabeled arrows appear.
+  - Diagram looks like a technical figure, not a generic sci-fi illustration.
+failure_repair:
+  - If modules are missing, enumerate all required modules and their positions; group visually without deleting modules or connections.
+  - If arrows are wrong, restate source-to-target pairs as a numbered list.
+  - If text is garbled, edit the failed labels with exact copy, more readable typography, and clear placement while preserving all modules, arrows, and data.
+  - If style is too decorative, enforce white background, thin lines, and restrained palette.

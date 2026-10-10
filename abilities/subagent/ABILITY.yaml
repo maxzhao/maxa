@@ -1,0 +1,20 @@
+merge: true
+visibility: global
+triggers:
+  - "run_agent"
+  - "fork_agent"
+  - "resume_agent"
+  - "multi_agent"
+  - "restrict_tools"
+  - "subagent"
+  - "child agent"
+  - "subagent tool restriction"
+  - "subagent history resume"
+  - "SubAgent MCP"
+  - "reusable subagent workflow"
+  - "context preparation session"
+  - "reusable child context"
+  - "reasonable subagent delegation"
+  - "subagent delegation strategy"
+  - "multi-agent workflow doc"
+suite: [agent-development]

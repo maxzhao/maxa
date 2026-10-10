@@ -1,0 +1,13 @@
+visibility: global
+triggers:
+  - "web-fetch"
+  - "web search"
+  - "fetch URL"
+  - "read web page"
+  - "web page body extraction"
+  - "stealth fetch"
+exclude:
+  - "scripts/"
+  - "tests/"
+  - "vendor/"
+suite: [web-research, software-engineering, media-production]

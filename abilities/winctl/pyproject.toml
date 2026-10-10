@@ -1,0 +1,7 @@
+[project]
+name = "maxa-ability-winctl"
+version = "0.1.0"
+description = "Python runtime environment for the Maxa winctl Ability"
+requires-python = ">=3.11"
+dependencies = []
+

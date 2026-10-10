@@ -1,0 +1,63 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: appstore_screenshot_set
+category: app-store-screenshot
+description: >-
+  Create a production-ready App Store or Google Play screenshot set direction
+  with truthful UI framing, short benefit copy, and safe upload margins.
+source_inspiration:
+  - hypersocialinc/shots upload screenshot workflow concept
+  - genai references/categories/app-store-screenshot.md
+recommended_requested_size: 1024x1536
+required_inputs:
+  - app_name
+  - store_target
+  - device_family
+  - upload_purpose
+  - real_ui_source_or_description
+  - screenshot_count_or_set_role
+  - benefit_headlines
+  - visual_system
+optional_inputs:
+  - support_copy
+  - background_style
+  - device_frame_style
+  - locale
+  - competitor_layout_notes
+prompt_schema:
+  role: App store screenshot art director
+  structure:
+    - Create a production App Store or Google Play screenshot composition for "{{app_name}}".
+    - "Store target: {{store_target}}, {{device_family}}, {{upload_purpose}}."
+    - "Canvas: {{canvas | default: 'portrait upload screenshot'}}; set role: {{screenshot_count_or_set_role}}."
+    - "UI source: {{real_ui_source_or_description}}; preserve actual navigation, feature meaning, and brand text."
+    - "Benefit headline(s): {{benefit_headlines}}."
+    - "Support copy: {{support_copy | default: 'none unless provided'}}."
+    - "Layout: {{device_frame_style | default: 'single centered device frame'}}, {{background_style | default: 'clean branded gradient'}}, safe margins for store upload."
+    - "Visual system: {{visual_system}}."
+    - Avoid invented features, fake awards, ratings, platform badges, bank logos, or third-party marks.
+    - Preserve every supplied UI label and marketing line verbatim; make text crisp and readable through layout and typography.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate_or_image_edit
+  requested_size: 1024x1536
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - Use image_edit with image_paths when the user provides real UI screenshots.
+    - Generate one image per request; for a set, repeat calls or ask for prompt plan first.
+    - These are concept defaults, not store upload dimensions; preserve the user's exact target and resolve request compatibility through references/preflight.md without silently resizing.
+    - If the provided screenshot must remain pixel-identical, composite it deterministically into the generated surrounding artwork.
+visual_verify:
+  - When mode is image_edit, apply references/image-edit-review-standard.md; accept normal redraw when first-glance UI identity and protected invariants hold, without requiring 1:1 pixels or exact seams.
+  - Headline, support copy, app name, and UI text are readable and not garbled.
+  - Real UI source is faithfully framed; navigation, buttons, charts, and feature boundaries are not invented.
+  - Device frame, safe margins, title placement, and upload purpose are correct.
+  - No fake awards, ratings, app store badges, certifications, bank logos, or third-party marks appear.
+failure_repair:
+  - If text is garbled, edit only failed text using the exact supplied copy, explicit placement, and readable typography; preserve UI, layout, and all required wording.
+  - If UI fidelity drifts, switch to image_edit and state the screenshot is the source of truth.
+  - If layout is cluttered, repair spacing, frame placement, and hierarchy while retaining requested devices and messages.
+  - If forbidden badges or logos appear, explicitly request removal and list allowed brand assets only.

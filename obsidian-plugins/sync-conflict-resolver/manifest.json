@@ -1,0 +1,9 @@
+{
+  "id": "sync-conflict-resolver",
+  "name": "Sync Conflict Resolver",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Three-way merge for Syncthing conflicts using .stversions as base. Provides visual diff and merge UI.",
+  "author": "Maxa",
+  "isDesktopOnly": false
+}

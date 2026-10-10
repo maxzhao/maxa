@@ -1,0 +1,11 @@
+visibility: global
+triggers:
+  - "create Ability"
+  - "edit SKILL.md"
+  - "edit ABILITY.yaml"
+  - "audit Ability description"
+  - "Agent Skill authoring"
+executors:
+  - match: '^/scripts/lint_skill_descriptions\.py$'
+    command: [uv, run, --project, '{root}', python, '{script}']
+suite: [agent-development]

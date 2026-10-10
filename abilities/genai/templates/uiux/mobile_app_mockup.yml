@@ -1,0 +1,62 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: uiux_mobile_app_mockup
+category: ui-ux
+description: >-
+  Design a production-quality mobile app screen mockup with real hierarchy,
+  concise UI copy, realistic data, and platform-aware spacing.
+source_inspiration:
+  - genai references/categories/ui-ux.md
+  - production UI mockup workflow concept
+recommended_requested_size: 1024x1536
+required_inputs:
+  - product_name
+  - app_domain
+  - screen_name
+  - platform
+  - layout_regions
+  - exact_ui_text
+  - realistic_data
+  - visual_system
+optional_inputs:
+  - device_frame
+  - icon_style
+  - interaction_state
+  - target_user
+prompt_schema:
+  role: Mobile UI mockup designer
+  structure:
+    - Design a polished mobile app UI mockup for "{{product_name}}".
+    - "Domain and user: {{app_domain}} for {{target_user | default: 'a realistic target user'}}."
+    - "Platform/device: {{platform}}; device frame: {{device_frame | default: 'tall smartphone screen'}}."
+    - "Screen/page: {{screen_name}}."
+    - "Layout regions: {{layout_regions}}."
+    - "Exact in-image UI text: {{exact_ui_text}}."
+    - "Realistic data/list items: {{realistic_data}}."
+    - "Visual system: {{visual_system}}; icon style: {{icon_style | default: 'consistent simple line icons'}}."
+    - "Interaction state: {{interaction_state | default: 'normal production screen'}}."
+    - Prioritize crisp typography, clean spacing, precise icon alignment, realistic app hierarchy, and production-quality rendering. Preserve supplied copy and data verbatim; mark fictional sample data explicitly.
+    - Avoid placeholder gibberish, inconsistent icons, random lorem ipsum, unreadable microtext, and impossible UI controls.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate
+  requested_size: 1024x1536
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - Preserve supplied UI copy; assign wording to named screen regions rather than shortening it automatically.
+    - Use image_edit only when applying a style to a provided app screenshot.
+visual_verify:
+  - When a provided screenshot is restyled with image_edit, apply references/image-edit-review-standard.md; accept normal redraw when first-glance UI identity and protected layout hold, while exact requested text and feature meaning remain strict invariants.
+  - Product name, screen name, buttons, tabs, and key labels are readable and match exact_ui_text.
+  - Layout regions appear in the requested order and hierarchy.
+  - Data values and list items match the supplied input; fictional sample data is marked, not presented as production facts.
+  - Icons, spacing, cards, and navigation are visually consistent.
+  - No random text, extra brands, or impossible UI widgets appear.
+failure_repair:
+  - If text is garbled, edit failed wording with exact_ui_text and explicit region placement while preserving layout, data, and all required copy.
+  - If layout is crowded, improve grouping, typography, and spacing without deleting required cards or modules.
+  - If icons are inconsistent, specify one icon family and consistent stroke/size while retaining required controls.
+  - If hierarchy is unclear, restate header, primary card, secondary modules, and bottom navigation explicitly.

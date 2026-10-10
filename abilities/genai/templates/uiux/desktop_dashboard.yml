@@ -1,0 +1,61 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: uiux_desktop_dashboard
+category: ui-ux
+description: >-
+  Create a desktop dashboard or web app screenshot with believable metrics,
+  charts, tables, navigation, and crisp product UI hierarchy.
+source_inspiration:
+  - genai references/categories/ui-ux.md
+  - business dashboard and analytics screen prompt patterns
+recommended_requested_size: 1536x1024
+required_inputs:
+  - product_name
+  - dashboard_purpose
+  - audience
+  - layout_regions
+  - metrics
+  - charts_or_tables
+  - exact_labels
+  - visual_system
+optional_inputs:
+  - sidebar_items
+  - date_range
+  - browser_or_app_frame
+  - empty_or_error_state
+prompt_schema:
+  role: Desktop dashboard UI designer
+  structure:
+    - Design a production-quality desktop dashboard screenshot for "{{product_name}}".
+    - "Purpose: {{dashboard_purpose}} for {{audience}}."
+    - "Frame: {{browser_or_app_frame | default: 'clean web app window'}}."
+    - "Layout: {{layout_regions}}."
+    - "Sidebar/navigation items: {{sidebar_items | default: 'only relevant concise navigation items'}}."
+    - "Metrics: {{metrics}}."
+    - "Charts/tables: {{charts_or_tables}}."
+    - "Exact labels and UI text: {{exact_labels}}."
+    - "Date range/state: {{date_range | default: 'current month'}}; special state: {{empty_or_error_state | default: 'normal populated state'}}."
+    - "Visual system: {{visual_system}}."
+    - Use crisp typography, aligned grids, readable chart labels, supplied values verbatim, and clear information hierarchy; label fictional sample data explicitly and do not invent production metrics.
+    - Avoid random lorem ipsum, fake unreadable axes, inconsistent cards, noisy decoration, and impossible table density.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate
+  requested_size: 1536x1024
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - For a wider dashboard concept, 2048x1152 is a supported planning size; preserve any user-specified dimensions through references/preflight.md.
+visual_verify:
+  - Dashboard purpose is immediately clear from title and primary metric cards.
+  - Charts/tables have readable labels and match supplied data; any fictional sample values are marked, with no invented production metrics or fake formula clutter.
+  - Navigation, cards, filters, and tables align on a coherent grid.
+  - Exact labels are legible and do not become placeholder gibberish.
+  - Visual system is consistent across cards, charts, and controls.
+failure_repair:
+  - If charts are meaningless, specify chart type, all required axis/data labels, units, and supplied values explicitly.
+  - If table text is unreadable, repair column widths, row spacing, and typography while preserving all required rows, columns, and values.
+  - If visual density is too high, improve region grouping and hierarchy; do not delete required modules, and seek authorization before splitting the requested screen.
+  - If random labels appear, list exact labels and forbid extra placeholder text.

@@ -1,0 +1,14 @@
+[project]
+name = "maxa-ability-web-fetch"
+version = "0.1.0"
+description = "Python runtime environment for the Maxa web-fetch Ability"
+requires-python = ">=3.11"
+dependencies = [
+    "requests[socks]>=2.32.0",
+    "markdownify>=0.14.0",
+    "readabilipy>=0.3.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "scrapling>=0.2.0",
+]
+

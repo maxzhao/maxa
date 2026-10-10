@@ -1,0 +1,26 @@
+{
+  "name": "semantic-graph-labels",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Displays semantic note titles from frontmatter in graph and local graph without renaming files.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "typecheck": "tsc -noEmit -skipLibCheck"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "graph"
+  ],
+  "author": "Maxa",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "latest",
+    "builtin-modules": "latest",
+    "esbuild": "latest",
+    "obsidian": "latest",
+    "typescript": "latest"
+  }
+}

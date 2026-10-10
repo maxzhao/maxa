@@ -1,0 +1,9 @@
+[project]
+name = "maxa-ability-session"
+version = "0.1.0"
+description = "Maxa session administration Ability scripts"
+requires-python = ">=3.10"
+dependencies = []
+
+[dependency-groups]
+test = []

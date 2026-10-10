@@ -1,0 +1,13 @@
+visibility: global
+triggers:
+  - "Windows run scope"
+  - "runwingui"
+  - "WSL Windows"
+  - "Windows-side execution"
+  - "/mnt/c"
+  - "WSL startup keepalive"
+  - "WSL SSH"
+  - "fresh WSL setup"
+  - "Docker Desktop WSL integration"
+  - "/var/run/docker.sock"
+suite: [desktop-automation]

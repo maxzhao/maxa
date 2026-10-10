@@ -1,0 +1,50 @@
+---@class MaxaAI.Chat.UI.Formatters.Base
+---@field chat MaxaAI.Chat
+---@field is_new_response boolean
+---@field last_tag? string
+---@field __class string
+local BaseFormatter = {}
+BaseFormatter.__class = "BaseFormatter"
+
+---@class MaxaAI.Chat.UI.Formatters.BaseArgs
+---@field chat MaxaAI.Chat
+---@field is_new_response boolean
+---@field last_tag? string
+
+---@param chat MaxaAI.Chat
+function BaseFormatter:new(chat)
+  if not chat then
+    error("BaseFormatter:new() called with nil chat")
+  end
+
+  return setmetatable({
+    chat = chat,
+  }, { __index = self })
+end
+
+---Check if this formatter can handle the given data/opts
+---@param message table
+---@param opts table
+---@param tags table
+---@return boolean
+function BaseFormatter:can_handle(message, opts, tags)
+  error("Must implement can_handle method")
+end
+
+---Get the message type for this formatter
+---@param opts table
+---@return string
+function BaseFormatter:get_type(opts)
+  error("Must implement get_type method")
+end
+
+---Format the content into lines
+---@param message table
+---@param opts table
+---@param state table
+---@return table lines, table? fold_info
+function BaseFormatter:format(message, opts, state)
+  error("Must implement format method")
+end
+
+return BaseFormatter

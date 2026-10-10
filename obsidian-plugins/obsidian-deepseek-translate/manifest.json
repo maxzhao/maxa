@@ -1,0 +1,9 @@
+{
+  "id": "obsidian-deepseek-translate",
+  "name": "DeepSeek Translate",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Translates the current document with DeepSeek using Maxa translate-cache compatibility.",
+  "author": "Maxa",
+  "isDesktopOnly": false
+}

@@ -1,0 +1,9 @@
+{
+  "id": "semantic-graph-labels",
+  "name": "Semantic Graph Labels",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Displays semantic note titles from frontmatter in graph and local graph without renaming files.",
+  "author": "Maxa",
+  "isDesktopOnly": false
+}

@@ -1,0 +1,14 @@
+visibility: global
+triggers:
+  - "git workspace"
+  - "git worktree workspace"
+  - "worktree workspace"
+  - "create workspace"
+  - "workspace binding"
+exclude:
+  - "tests/"
+  - "**/__pycache__/"
+executors:
+  - match: '^/scripts/git_workspace\.py$'
+    command: [uv, run, --project, '{root}', python, '{script}']
+suite: [project-management]

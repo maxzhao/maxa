@@ -1,0 +1,16 @@
+history
+lastchat.md
+lastworks.md
+handoff/
+
+tmp/
+upload/
+drafts/
+translate-cache/
+.obsidian/*.workspace
+.obsidian/workspace*.json
+.obsidian/workspace.json
+.obsidian/graph.json
+.obsidian/cache/
+.obsidian/.obsidian-sync-helper-backup/
+.stversions/

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Maxa Chat Upload</title>
+  <link rel="stylesheet" href="./uppy.css">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main>
+    <header><h1>Upload files to Chat</h1><p>Files upload immediately. Review them, then Submit or Cancel.</p></header>
+    <div id="uppy"></div>
+    <section class="url-import" aria-labelledby="url-import-heading">
+      <h2 id="url-import-heading">Import from public URL</h2>
+      <form id="url-import-form">
+        <label for="url-import-input">HTTP(S) URL</label>
+        <div><input id="url-import-input" name="url" type="url" required placeholder="https://example.com/file.jpg"><button type="submit">Import</button></div>
+      </form>
+    </section>
+    <section><h2>Completed files</h2><ul id="completed"></ul></section>
+    <p id="status" role="status"></p>
+    <footer><button id="cancel" class="secondary">Cancel</button><button id="submit" disabled>Submit paths to Chat</button></footer>
+  </main>
+  <script src="./app.js"></script>
+</body>
+</html>

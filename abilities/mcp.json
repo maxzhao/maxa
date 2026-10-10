@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "browser": {
+      "args": ["${env:MAXA_RUNTIME_ROOT}/mcp-servers/browser/index.js"],
+      "command": "node"
+    },
+    "markitdown": {
+      "args": ["markitdown-mcp"],
+      "command": "uvx",
+      "description": "Convert PDF, Word, Excel, PowerPoint, HTML, image and audio documents to Markdown.",
+      "env": {
+        "HTTPS_PROXY": "http://localhost:10808",
+        "HTTP_PROXY": "http://localhost:10808"
+      },
+      "suite": ["media-production", "project-management"],
+      "triggers": ["document to Markdown conversion"]
+    }
+  },
+  "nativeMCPServers": {
+    "genai": [],
+    "subagent": []
+  }
+}

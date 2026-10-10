@@ -1,0 +1,28 @@
+visibility: global
+triggers:
+  - "task id"
+  - "resolve_task"
+  - "next_task"
+  - "update_task.py"
+  - ".maxa/tasks"
+  - "task plan"
+  - "task TODO"
+  - "current task"
+  - "next task"
+  - "task list"
+  - "task workspace"
+  - "merge TaskAdmin tasks"
+  - "TaskAdmin task collision"
+  - "execute task"
+  - "continue task"
+  - "update task"
+  - "complete task"
+  - "create task"
+exclude:
+  - "scripts/lib/"
+  - "tests/"
+  - "**/__pycache__/"
+executors:
+  - match: '^/scripts/[^/]\+\.py$'
+    command: [uv, run, --project, '{root}', python, '{script}']
+suite: [project-management]

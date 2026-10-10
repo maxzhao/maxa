@@ -1,0 +1,57 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: poster_typography_poster
+category: poster-typography
+description: >-
+  Create a premium typography-led poster where exact title text is the dominant
+  visual structure, with strong hierarchy and controlled supporting details.
+source_inspiration:
+  - genai references/categories/poster-typography.md
+  - conceptual typography poster prompt patterns
+recommended_requested_size: 1024x1536
+required_inputs:
+  - title_text
+  - theme_or_event
+  - visual_metaphor
+  - hierarchy
+  - typography_style
+  - palette
+optional_inputs:
+  - subtitle_text
+  - date_or_details
+  - supporting_subject
+  - texture_or_material
+prompt_schema:
+  role: Typography poster designer
+  structure:
+    - Create one finished premium typography poster for the exact title "{{title_text}}".
+    - "Theme/event: {{theme_or_event}}."
+    - "Hierarchy: {{hierarchy}}."
+    - "Subtitle/details: {{subtitle_text | default: 'none unless provided'}}; {{date_or_details | default: 'no extra details'}}."
+    - "Visual metaphor: {{visual_metaphor}}."
+    - "Supporting subject: {{supporting_subject | default: 'only if it strengthens the title concept'}}."
+    - "Typography style: {{typography_style}}."
+    - "Palette: {{palette}}; texture/material: {{texture_or_material | default: 'subtle paper or ink texture'}}."
+    - The title must be huge, readable, dominant, spelled exactly, and not translated or replaced.
+    - Avoid generic word art, random icons, fake sponsor logos, unrelated text, misspelled typography, cluttered collage, and unreadable microtext.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate
+  requested_size: 1024x1536
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - Use references/preflight.md to select supported settings; do not substitute a template size for the user's exact dimensions or infer speed/quality from a size label.
+visual_verify:
+  - title_text is readable, dominant, and spelled exactly.
+  - Supporting copy appears only if provided and remains secondary.
+  - Visual metaphor supports the theme rather than decorating randomly.
+  - Typography, palette, and texture feel intentional and coherent.
+  - No fake sponsor logos, unrelated brands, or garbled extra text appear.
+failure_repair:
+  - If title text is wrong, edit only the title with exact quoted wording and clear placement while preserving all supporting copy and the approved composition.
+  - If hierarchy is weak, specify first-eye title, second-eye subtitle, third-eye details.
+  - If poster is cluttered, improve hierarchy and spacing; preserve required subjects and copy, removing only unrequested decoration.
+  - If style is generic, define letterform weight, spacing, rhythm, edge quality, and texture.

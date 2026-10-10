@@ -1,0 +1,198 @@
+{
+  "name": "replicate-mcp",
+  "version": "2.0.0-alpha.74-maxa.1",
+  "description": "Pinned Replicate MCP server with Maxa local-file upload/download adapters",
+  "author": "Replicate <team@replicate.com>",
+  "types": "./index.d.ts",
+  "main": "./index.js",
+  "type": "commonjs",
+  "homepage": "https://replicate.com/docs/reference/mcp",
+  "license": "Apache-2.0",
+  "packageManager": "yarn@1.22.22",
+  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "node index.js --client=claude --tools=dynamic",
+    "build": "bash ./build",
+    "format": "prettier --write --cache --cache-strategy metadata . !dist",
+    "tsn": "ts-node -r tsconfig-paths/register",
+    "lint": "eslint --ext ts,js .",
+    "fix": "eslint --fix --ext ts,js ."
+  },
+  "dependencies": {
+    "replicate": "^2.0.0-alpha.74",
+    "@cloudflare/cabidela": "^0.2.4",
+    "@modelcontextprotocol/sdk": "^1.24.0",
+    "@valtown/deno-http-worker": "^0.0.21",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "fuse.js": "^7.1.0",
+    "jq-web": "https://github.com/stainless-api/jq-web/releases/download/v0.8.8/jq-web.tar.gz",
+    "qs": "^6.14.0",
+    "typescript": "5.8.3",
+    "yargs": "^17.7.2",
+    "zod": "^3.25.20",
+    "zod-to-json-schema": "^3.24.5",
+    "zod-validation-error": "^4.0.1"
+  },
+  "bin": {
+    "mcp-server": "./index.js"
+  },
+  "imports": {
+    "replicate-mcp": ".",
+    "replicate-mcp/*": "./src/*"
+  },
+  "exports": {
+    ".": {
+      "require": {
+        "types": "./index.d.ts",
+        "default": "./index.js"
+      },
+      "types": "./index.d.mts",
+      "default": "./index.mjs"
+    },
+    "./code-tool-types": {
+      "import": "./code-tool-types.mjs",
+      "require": "./code-tool-types.js"
+    },
+    "./code-tool-types.js": {
+      "default": "./code-tool-types.js"
+    },
+    "./code-tool-types.mjs": {
+      "default": "./code-tool-types.mjs"
+    },
+    "./code-tool": {
+      "import": "./code-tool.mjs",
+      "require": "./code-tool.js"
+    },
+    "./code-tool.js": {
+      "default": "./code-tool.js"
+    },
+    "./code-tool.mjs": {
+      "default": "./code-tool.mjs"
+    },
+    "./compat": {
+      "import": "./compat.mjs",
+      "require": "./compat.js"
+    },
+    "./compat.js": {
+      "default": "./compat.js"
+    },
+    "./compat.mjs": {
+      "default": "./compat.mjs"
+    },
+    "./docs-search-tool": {
+      "import": "./docs-search-tool.mjs",
+      "require": "./docs-search-tool.js"
+    },
+    "./docs-search-tool.js": {
+      "default": "./docs-search-tool.js"
+    },
+    "./docs-search-tool.mjs": {
+      "default": "./docs-search-tool.mjs"
+    },
+    "./dynamic-tools": {
+      "import": "./dynamic-tools.mjs",
+      "require": "./dynamic-tools.js"
+    },
+    "./dynamic-tools.js": {
+      "default": "./dynamic-tools.js"
+    },
+    "./dynamic-tools.mjs": {
+      "default": "./dynamic-tools.mjs"
+    },
+    "./filtering": {
+      "import": "./filtering.mjs",
+      "require": "./filtering.js"
+    },
+    "./filtering.js": {
+      "default": "./filtering.js"
+    },
+    "./filtering.mjs": {
+      "default": "./filtering.mjs"
+    },
+    "./headers": {
+      "import": "./headers.mjs",
+      "require": "./headers.js"
+    },
+    "./headers.js": {
+      "default": "./headers.js"
+    },
+    "./headers.mjs": {
+      "default": "./headers.mjs"
+    },
+    "./http": {
+      "import": "./http.mjs",
+      "require": "./http.js"
+    },
+    "./http.js": {
+      "default": "./http.js"
+    },
+    "./http.mjs": {
+      "default": "./http.mjs"
+    },
+    "./index": {
+      "import": "./index.mjs",
+      "require": "./index.js"
+    },
+    "./index.js": {
+      "default": "./index.js"
+    },
+    "./index.mjs": {
+      "default": "./index.mjs"
+    },
+    "./options": {
+      "import": "./options.mjs",
+      "require": "./options.js"
+    },
+    "./options.js": {
+      "default": "./options.js"
+    },
+    "./options.mjs": {
+      "default": "./options.mjs"
+    },
+    "./server": {
+      "import": "./server.mjs",
+      "require": "./server.js"
+    },
+    "./server.js": {
+      "default": "./server.js"
+    },
+    "./server.mjs": {
+      "default": "./server.mjs"
+    },
+    "./stdio": {
+      "import": "./stdio.mjs",
+      "require": "./stdio.js"
+    },
+    "./stdio.js": {
+      "default": "./stdio.js"
+    },
+    "./stdio.mjs": {
+      "default": "./stdio.mjs"
+    },
+    "./tools/*.mjs": {
+      "default": "./tools/*.mjs"
+    },
+    "./tools/*.js": {
+      "default": "./tools/*.js"
+    },
+    "./tools/*": {
+      "import": "./tools/*.mjs",
+      "require": "./tools/*.js"
+    },
+    "./tools": {
+      "import": "./tools.mjs",
+      "require": "./tools.js"
+    },
+    "./tools.js": {
+      "default": "./tools.js"
+    },
+    "./tools.mjs": {
+      "default": "./tools.mjs"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "obsidian-deepseek-translate",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Translates the current Obsidian document with DeepSeek and reuses Maxa translate-cache files.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "typecheck": "tsc -noEmit -skipLibCheck",
+    "test": "node tests/cache_compat.test.mjs"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "translation",
+    "deepseek"
+  ],
+  "author": "Maxa",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "latest",
+    "builtin-modules": "latest",
+    "esbuild": "latest",
+    "obsidian": "latest",
+    "typescript": "latest"
+  }
+}

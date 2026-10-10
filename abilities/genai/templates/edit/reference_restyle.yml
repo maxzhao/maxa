@@ -1,0 +1,60 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: edit_reference_restyle
+category: edit-reference
+description: >-
+  Restyle or transform a provided reference image while preserving identity,
+  composition, layout, text, brand, and geometry invariants.
+source_inspiration:
+  - genai references/categories/edit-reference.md
+  - genai references/iterative-workflows.md
+recommended_requested_size: auto
+required_inputs:
+  - image_paths
+  - target_change
+  - preserve_invariants
+  - new_style_or_context
+  - do_not_change
+optional_inputs:
+  - image_roles
+  - exact_text_strategy
+  - target_area
+  - verification_priority
+prompt_schema:
+  role: Reference edit specialist
+  structure:
+    - Edit the reference image; change only {{target_change}}.
+    - "Input image roles: {{image_roles | default: 'Image 1 is the main source image; preserve its subject and composition'}}."
+    - "Preserve invariants: {{preserve_invariants}}."
+    - "Do not change: {{do_not_change}}."
+    - "Target area/change scope: {{target_area | default: 'apply the change only where visually necessary'}}."
+    - "New style/context: {{new_style_or_context}}."
+    - "Text strategy: {{exact_text_strategy | default: 'preserve original readable text unless explicitly replaced'}}."
+    - "Verification priority: {{verification_priority | default: 'identity, composition, text, geometry, and style adherence'}}."
+    - Outside the requested change, preserve identity, camera angle, main subject geometry, layout, lighting, colors, and provided brand/text elements.
+    - Avoid identity drift, unwanted extra text, fake logos, layout changes, and unrelated style additions.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_edit
+  requested_size: auto
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - image_paths must contain at least one local readable image path.
+    - Use mask_path only when the user provides a local mask for localized edits; still describe target area and preserve constraints in the prompt.
+    - For iterative edits, use the previous output file as the next image_paths input.
+    - If a region must remain pixel-identical, composite the approved edit into the original deterministically; a prompt or mask is not a pixel-preservation guarantee.
+visual_verify:
+  - "Apply references/image-edit-review-standard.md: judge requested-change success and first-glance perceptual identity; accept normal generative redraw and do not require 1:1 pixels or exact seams unless a named strict invariant applies."
+  - Requested change is visible in the target area or overall style.
+  - "preserve_invariants remain stable: identity, composition, text, brand, geometry, camera angle, and lighting outside the requested change."
+  - No unrelated objects, fake logos, or extra text appear.
+  - Original readable text is preserved unless replacement was requested.
+  - Style/context changes do not overwhelm the source subject.
+failure_repair:
+  - If subject identity drifts, repeat face/silhouette/geometry/clothing invariants at the start of the prompt.
+  - If layout changes, explicitly say keep composition, camera angle, and region positions unchanged.
+  - If text changes accidentally, restore the exact original wording with a text-only edit and protect identity, geometry, layout, and lighting; do not remove required text.
+  - If local edit is too broad, narrow target_area and list do_not_change items more explicitly.

@@ -1,0 +1,203 @@
+port module InteropPorts exposing
+    ( addHoverToCardEditButtons
+    , closeView
+    , decodeFlags
+    , deleteTask
+    , displayTaskMarkdown
+    , elmInitialized
+    , openTaskSourceFile
+    , openTodoSeqTaskEditor
+    , requestFilterCandidates
+    , rewriteTasks
+    , showCardContextMenu
+    , showTodoSeqStateMenu
+    , todoSeqCycleTaskState
+    , todoSeqMoveTaskToColumn
+    , todoSeqToggleTaskState
+    , toElm
+    , trackDraggable
+    , updateSettings
+    )
+
+import Card exposing (Card)
+import DragAndDrop.Coords exposing (Coords)
+import InteropDefinitions
+import Json.Decode
+import Json.Encode
+import Settings exposing (Settings)
+import TaskItem exposing (TaskItemFields)
+import TsJson.Decode as TsDecode
+import TsJson.Encode as TsEncode
+import UpdatedTaskItem exposing (UpdatedTaskItem)
+
+
+
+-- FLAGS
+
+
+decodeFlags : Json.Decode.Value -> Result Json.Decode.Error InteropDefinitions.Flags
+decodeFlags flags =
+    Json.Decode.decodeValue
+        (InteropDefinitions.interop.flags |> TsDecode.decoder)
+        flags
+
+
+
+-- SUBSCRIPTIONS
+
+
+toElm : Sub (Result Json.Decode.Error InteropDefinitions.ToElm)
+toElm =
+    (InteropDefinitions.interop.toElm |> TsDecode.decoder)
+        |> Json.Decode.decodeValue
+        |> interopToElm
+
+
+
+-- COMMANDS
+
+
+addHoverToCardEditButtons : List Card -> Cmd msg
+addHoverToCardEditButtons cards =
+    cards
+        |> List.map (\c -> { filePath = Card.filePath c, id = Card.editButtonId c })
+        |> InteropDefinitions.AddFilePreviewHovers
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+closeView : Cmd msg
+closeView =
+    InteropDefinitions.CloseView
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+deleteTask : TaskItemFields -> Cmd msg
+deleteTask taskItemFields =
+    taskItemFields
+        |> InteropDefinitions.DeleteTask
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+displayTaskMarkdown : List Card -> Cmd msg
+displayTaskMarkdown cards =
+    cards
+        |> List.map (\c -> { filePath = Card.filePath c, taskMarkdown = Card.markdownWithIds c })
+        |> InteropDefinitions.DisplayTaskMarkdown
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+elmInitialized : String -> Cmd msg
+elmInitialized uniqueId =
+    uniqueId
+        |> InteropDefinitions.ElmInitialized
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+openTaskSourceFile : TaskItemFields -> Cmd msg
+openTaskSourceFile taskItemFields =
+    taskItemFields
+        |> InteropDefinitions.OpenTaskSourceFile
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+openTodoSeqTaskEditor : String -> Cmd msg
+openTodoSeqTaskEditor taskId =
+    { taskId = taskId }
+        |> InteropDefinitions.OpenTodoSeqTaskEditor
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+requestFilterCandidates : Cmd msg
+requestFilterCandidates =
+    InteropDefinitions.RequestFilterCandidates
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+rewriteTasks : String -> List UpdatedTaskItem -> Cmd msg
+rewriteTasks filePath updatedTaskItems =
+    let
+        rewriteDetails : UpdatedTaskItem -> { lineNumber : Int, originalLine : String, newText : String }
+        rewriteDetails updatedTaskItem =
+            { lineNumber = UpdatedTaskItem.lineNumber updatedTaskItem
+            , originalLine = UpdatedTaskItem.originalLine updatedTaskItem
+            , newText = UpdatedTaskItem.toString updatedTaskItem
+            }
+    in
+    { filePath = filePath, tasks = List.map rewriteDetails updatedTaskItems }
+        |> InteropDefinitions.UpdateTasks
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+showCardContextMenu : ( Float, Float ) -> String -> Cmd msg
+showCardContextMenu clientPos cardId =
+    { clientPos = clientPos, cardId = cardId }
+        |> InteropDefinitions.ShowCardContextMenu
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+showTodoSeqStateMenu : ( Float, Float ) -> String -> Cmd msg
+showTodoSeqStateMenu clientPos taskId =
+    { clientPos = clientPos, taskId = taskId }
+        |> InteropDefinitions.ShowTodoSeqStateMenu
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+todoSeqCycleTaskState : String -> Cmd msg
+todoSeqCycleTaskState taskId =
+    { taskId = taskId }
+        |> InteropDefinitions.TodoSeqCycleTaskState
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+todoSeqMoveTaskToColumn : String -> String -> Maybe String -> Cmd msg
+todoSeqMoveTaskToColumn taskId columnId defaultKeyword =
+    { taskId = taskId, columnId = columnId, defaultKeyword = defaultKeyword }
+        |> InteropDefinitions.TodoSeqMoveTaskToColumn
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+todoSeqToggleTaskState : String -> Bool -> Cmd msg
+todoSeqToggleTaskState taskId checked =
+    { taskId = taskId, checked = checked }
+        |> InteropDefinitions.TodoSeqToggleTaskState
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+trackDraggable : String -> Coords -> String -> Cmd msg
+trackDraggable dragType clientPos draggableId =
+    { dragType = dragType, clientPos = clientPos, draggableId = draggableId }
+        |> InteropDefinitions.TrackDraggable
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+updateSettings : Settings -> Cmd msg
+updateSettings settings =
+    { settings | version = Settings.currentVersion }
+        |> InteropDefinitions.UpdateSettings
+        |> TsEncode.encoder InteropDefinitions.interop.fromElm
+        |> interopFromElm
+
+
+
+-- PORTS
+
+
+port interopFromElm : Json.Encode.Value -> Cmd msg
+
+
+port interopToElm : (Json.Decode.Value -> msg) -> Sub msg

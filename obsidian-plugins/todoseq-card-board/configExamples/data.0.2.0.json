@@ -1,0 +1,46 @@
+{
+  "version": "0.2.0",
+  "data": {
+    "boardConfigs": [
+      {
+        "tag": "dateBoardConfig",
+        "data": {
+          "completedCount": 10,
+          "filters": [],
+          "includeUndated": true,
+          "title": "Dated"
+        }
+      },
+      {
+        "tag": "tagBoardConfig",
+        "data": {
+          "columns": [
+            {
+              "tag": "home",
+              "displayTitle": "Home"
+            },
+            {
+              "tag": "wellbeing",
+              "displayTitle": "Wellbeing"
+            }
+          ],
+          "completedCount": 10,
+          "filters": [
+            {
+              "tag": "pathFilter",
+              "data": "example_tasks"
+            }
+          ],
+          "includeOthers": false,
+          "includeUntagged": false,
+          "title": "Tagged"
+        }
+      }
+    ],
+    "globalSettings": {
+      "hideCompletedSubtasks": false,
+      "ignorePaths": [],
+      "subTaskDisplayLimit": null
+    }
+  }
+}

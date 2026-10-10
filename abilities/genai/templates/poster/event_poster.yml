@@ -1,0 +1,58 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: poster_event_poster
+category: poster-typography
+description: >-
+  Design a readable event, campaign, festival, or launch poster with exact copy,
+  clear hierarchy, visual anchor, and platform-ready composition.
+source_inspiration:
+  - genai references/categories/poster-typography.md
+recommended_requested_size: 1024x1536
+required_inputs:
+  - event_name
+  - main_title
+  - subtitle_or_slogan
+  - date_location_or_cta
+  - visual_anchor
+  - poster_style
+  - palette
+optional_inputs:
+  - organizer_or_brand
+  - target_platform
+  - mood
+  - fine_print
+prompt_schema:
+  role: Event poster art director
+  structure:
+    - Design a vertical event poster for "{{event_name}}".
+    - "Main title: {{main_title}}."
+    - "Subtitle/slogan: {{subtitle_or_slogan}}."
+    - "Date/location/CTA: {{date_location_or_cta}}."
+    - "Organizer/brand: {{organizer_or_brand | default: 'do not invent organizers or sponsors'}}."
+    - "Visual anchor: {{visual_anchor}}."
+    - "Style: {{poster_style}}; mood: {{mood | default: 'aligned with the event theme'}}."
+    - "Palette: {{palette}}; platform: {{target_platform | default: 'social poster'}}."
+    - "Fine print: {{fine_print | default: 'none'}}."
+    - Use strong hierarchy, crisp typography, generous spacing, and a clear first-read title.
+    - Avoid fake sponsor logos, random extra text, unreadable microtext, and all text having equal weight.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate
+  requested_size: 1024x1536
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - Select any higher-resolution option through references/preflight.md while preserving the requested aspect ratio or exact dimensions.
+visual_verify:
+  - Main title, subtitle, date/location/CTA are readable and match the provided copy.
+  - Poster has a clear first-eye/second-eye/third-eye hierarchy.
+  - Visual anchor supports the event and is not obscured by text.
+  - No fake sponsors or unprovided brand marks appear.
+  - Composition fits the requested platform and aspect ratio.
+failure_repair:
+  - If text is garbled, edit failed text with exact copy and placement, improving typography and spacing while preserving required fine print, title, subtitle, and date/CTA.
+  - If visual anchor competes with title, specify title area and anchor area separately.
+  - If fake sponsors appear, explicitly forbid sponsor logos and certification marks.
+  - If hierarchy is flat, enlarge main_title and demote all supporting details.

@@ -1,0 +1,25 @@
+{
+  "name": "sync-conflict-resolver",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Three-way merge for Syncthing conflicts using .stversions as base. Provides visual diff and merge UI.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "typecheck": "tsc -noEmit -skipLibCheck"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin"
+  ],
+  "author": "Maxa",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "latest",
+    "builtin-modules": "latest",
+    "esbuild": "latest",
+    "obsidian": "latest",
+    "typescript": "latest"
+  }
+}

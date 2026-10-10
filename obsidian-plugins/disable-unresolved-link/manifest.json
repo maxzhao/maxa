@@ -1,0 +1,9 @@
+{
+  "id": "disable-unresolved-link",
+  "name": "Disable Unresolved Link Creation",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Prevents creating new notes when clicking unresolved (non-existing) links in reading mode and graph view.",
+  "author": "Maxa",
+  "isDesktopOnly": false
+}

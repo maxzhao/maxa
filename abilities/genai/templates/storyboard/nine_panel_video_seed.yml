@@ -1,0 +1,59 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: storyboard_nine_panel_video_seed
+category: storyboard-video-seed
+description: >-
+  Create a nine-panel storyboard on one canvas as visual DNA for an image-to-video
+  workflow, preserving character, wardrobe, setting, and palette across panels.
+source_inspiration:
+  - 9-panel storyboard as video visual DNA workflow concept
+  - genai references/categories/storyboard-video-seed.md
+recommended_requested_size: 2048x2048
+required_inputs:
+  - story_or_use_case
+  - panel_count
+  - shared_visual_dna
+  - panel_list
+  - camera_language
+  - intended_video_use
+optional_inputs:
+  - grid_layout
+  - caption_policy
+  - style_reference
+  - color_palette
+  - continuity_constraints
+prompt_schema:
+  role: Storyboard and video seed designer
+  structure:
+    - Create a {{panel_count}}-panel storyboard on one canvas for "{{story_or_use_case}}".
+    - "Purpose: {{intended_video_use}}; treat it as visual DNA for image-to-video, not a final motion prompt."
+    - "Layout: {{grid_layout | default: '3x3 clean grid with thin gutters'}}; panel count: {{panel_count}}."
+    - "Shared visual DNA: {{shared_visual_dna}}."
+    - "Camera language: {{camera_language}}."
+    - "Panel list: {{panel_list}}."
+    - "Caption policy: {{caption_policy | default: 'preserve any supplied dialogue/captions; otherwise panel numbers only'}}."
+    - "Style reference: {{style_reference | default: 'coherent cinematic storyboard sketch'}}; palette: {{color_palette | default: 'consistent across all panels'}}."
+    - Keep defining character identity and visual style consistent across panels; preserve wardrobe, props, setting, time of day, and palette except where the requested story explicitly changes them.
+    - Preserve supplied dialogue and captions exactly as assigned to panels; avoid unrequested text, character drift, and contradictory lighting.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate_or_image_edit
+  requested_size: 2048x2048
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - Prefer one canvas containing all panels and verify continuity; adapt the default 3x3 grid when the supplied panel_count differs from nine.
+    - Use image_edit if a character or location reference image is provided.
+visual_verify:
+  - When mode is image_edit, apply references/image-edit-review-standard.md; accept normal redraw when first-glance character/location identity holds, while panel count, order, and continuity remain named strict invariants.
+  - Panel count, requested grid, panel order, and numbering match the request; 3x3 is the nine-panel default only.
+  - Character identity and visual style remain consistent; wardrobe, props, setting, time of day, and palette follow the story's explicit changes and continuity constraints.
+  - Shot/action changes are visible and follow the requested camera language.
+  - Required dialogue/captions are accurate, readable, and assigned to the correct panels; no unrequested text or motion-prompt clutter appears.
+failure_repair:
+  - If panel count is wrong, restate the supplied panel_count, matching rows/columns, and panel order with no extra or omitted frames.
+  - If character drifts, restate face, hair, clothing, silhouette, and key props as preserve invariants.
+  - If captions clutter the image, repair text placement and panel spacing while preserving required dialogue/captions; use panel numbers only when no other copy was requested.
+  - If actions are unclear, rewrite each panel as one short shot/action sentence.

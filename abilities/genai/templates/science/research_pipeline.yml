@@ -1,0 +1,61 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: scientific_research_pipeline
+category: scientific-figure
+description: >-
+  Create a publication-style research pipeline or method figure sketch with
+  exact modules, arrows, labels, and editable-diagram intent.
+source_inspiration:
+  - NanaDraw-style scientific diagram workflow concept
+  - sci-figure workflow and research figure gallery patterns
+  - genai references/categories/scientific-figure.md
+recommended_requested_size: 1536x1024
+required_inputs:
+  - paper_or_project_topic
+  - figure_type
+  - module_list
+  - connection_flow
+  - labels_units_or_legend
+  - reading_order
+optional_inputs:
+  - panel_structure
+  - color_semantics
+  - target_venue_or_style
+  - provided_sketch_or_reference
+  - postprocess_target
+prompt_schema:
+  role: Scientific figure designer
+  structure:
+    - Create a scientific figure sketch for "{{paper_or_project_topic}}".
+    - "Figure type: {{figure_type}} on a white background with publication-style margins."
+    - "Layout and reading order: {{reading_order}}; panel structure: {{panel_structure | default: 'single figure'}}."
+    - "Modules: {{module_list}}."
+    - "Connections and data flow: {{connection_flow}}."
+    - "Labels, units, legend, or counts: {{labels_units_or_legend}}."
+    - "Style: {{target_venue_or_style | default: 'clean vector, draw.io-ready geometry'}}."
+    - "Color semantics: {{color_semantics | default: 'restrained scientific palette with semantic grouping'}}."
+    - Avoid random formulas, fake citations, unsupported claims, invented metrics, and unreadable microtext.
+    - Preserve every supplied module, connection, label, value, unit, and legend entry with legible placement; do not invent or omit scientific content.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate_or_image_edit
+  requested_size: 1536x1024
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - Treat output as a workflow sketch or style target, not final publication-ready vector art.
+    - Use image_edit when a sketch or paper figure reference is provided.
+    - Use references/preflight.md for supported quality, resolution, and runtime restrictions; do not infer fixed cost or quality from a size label.
+visual_verify:
+  - When mode is image_edit, apply references/image-edit-review-standard.md; accept normal visual redraw, while exact scientific labels, modules, connections, values, and reading order remain named strict invariants.
+  - Every module name, axis label, legend item, unit, count, and panel marker is readable and matches provided input.
+  - Arrows, grouping, data flow, and reading order match the requested diagram grammar.
+  - No random formulas, fake citations, unsupported claims, invented numbers, or illegible microtext appear.
+  - Final response states that the image is a reference sketch/style target if publication use is intended.
+failure_repair:
+  - If labels are unreadable, repair typography, module spacing, or label placement while preserving every supplied label, value, unit, and connection; do not reduce label count automatically.
+  - If data flow is wrong, list numbered stages and arrow directions explicitly in the next prompt.
+  - If invented metrics appear, state that only provided labels/counts are allowed and all other numbers must be omitted.
+  - If visual style overwhelms semantics, request white background, thin arrows, flat vector blocks, and no decorative tech illustration.

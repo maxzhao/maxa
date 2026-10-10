@@ -1,0 +1,58 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  --page-bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --border: #94a3b8;
+  --primary: #1d4ed8;
+  --primary-text: #ffffff;
+  --secondary: #e2e8f0;
+  --secondary-text: #0f172a;
+  --error: #b91c1c;
+  --focus: #2563eb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page-bg: #0f172a;
+    --surface: #111827;
+    --surface-muted: #1e293b;
+    --text: #f8fafc;
+    --text-muted: #cbd5e1;
+    --border: #64748b;
+    --primary: #3b82f6;
+    --primary-text: #07111f;
+    --secondary: #334155;
+    --secondary-text: #f8fafc;
+    --error: #fca5a5;
+    --focus: #93c5fd;
+  }
+}
+
+body { margin: 0; background: var(--page-bg); color: var(--text); }
+main { width: min(100% - 2rem, 58rem); margin: 0 auto; padding: 1rem 0 2rem; }
+header p, #status { color: var(--text-muted); }
+#status.error { color: var(--error); }
+footer { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1rem 0; }
+button {
+  border: 1px solid var(--border);
+  border-radius: .5rem;
+  padding: .75rem 1rem;
+  background: var(--surface-muted);
+  color: var(--secondary-text);
+  cursor: pointer;
+}
+footer { justify-content: flex-end; position: sticky; bottom: 0; padding: 1rem 0; background: var(--page-bg); }
+button { color: var(--primary-text); background: var(--primary); font: inherit; }
+button.secondary { color: var(--secondary-text); background: var(--secondary); }
+button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+.url-import form > div { display: flex; gap: .5rem; }
+.url-import input { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: .5rem; padding: .75rem; background: var(--surface); color: var(--text); font: inherit; }
+.url-import input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+#completed { word-break: break-all; padding-left: 1.4rem; }
+#completed li { margin-block: .5rem; }
+@media (max-width: 36rem) { footer button { flex: 1 1 auto; text-align: center; } }

@@ -1,0 +1,18 @@
+merge: true
+visibility: global
+triggers:
+  - "genai"
+  - "image generation"
+  - "generate image"
+  - "image editing"
+  - "image_generate"
+  - "image_edit"
+  - "audio_speech"
+  - "text to speech"
+  - "TTS"
+  - "video_generate"
+  - "video generation"
+  - "Responses image_generation"
+  - "image prompt"
+  - "reverse image case"
+suite: [media-production, interface-design]

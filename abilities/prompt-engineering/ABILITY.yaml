@@ -1,0 +1,10 @@
+visibility: global
+triggers:
+  - "prompt engineering"
+  - "write prompts"
+  - "optimize prompts"
+  - "edit prompts"
+  - "prompt template"
+  - "system prompt design"
+  - "agent instructions"
+suite: [project-management, agent-development]

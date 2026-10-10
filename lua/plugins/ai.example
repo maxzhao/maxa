@@ -1,0 +1,281 @@
+local env = require("maxa.utils.env")
+local DEFAULT_OPENAI_ADAPTER = "deepseek"
+local DEFAULT_OPENAI_MODEL = "deepseek-v4-flash"
+local DEFAULT_OPENAI_COMPACT_MODEL = "deepseek-v4-flash"
+-- "ultra", "max", "xhigh", "high", "medium", "low", "none"
+local DEFAULT_OPENAI_THINKING_MODE = "xhigh"
+local DEFAULT_HTTP_RAW = {
+  "--http1.1",
+  "--retry",
+  "5",
+  "--retry-delay",
+  "2",
+  "--retry-max-time",
+  "150",
+  "--connect-timeout",
+  "30",
+  "--speed-limit",
+  "1",
+  "--speed-time",
+  "60",
+}
+return {
+  {
+    dir = vim.fn.stdpath("config"),
+    name = "maxa",
+    lazy = false,
+    init = require("maxa.session.nvim_restart_resume").setup,
+    keys = {
+      {
+        "<leader>aC",
+        function()
+          vim.fn.feedkeys(":Maxa", "n")
+        end,
+        desc = "Maxa AI",
+        mode = { "n", "v" },
+      },
+      { "<leader>ac", "<Cmd>Maxa<CR>", desc = "Maxa", mode = "n" },
+      { "<leader>ac", "<Cmd>Maxa Add<CR>", desc = "Maxa", mode = "v" },
+      {
+        "<leader>aA",
+        function()
+          require("maxa.session.adapter_ui").select_global()
+        end,
+        desc = "Maxa AI: Set global LLM/media defaults",
+      },
+      {
+        "<leader>aa",
+        function()
+          require("maxa.session.adapter_ui").select_project()
+        end,
+        desc = "Maxa AI: Set project LLM/media defaults",
+      },
+      { "<leader>ah", "<Cmd>MaxaHistory<CR>", desc = "MaxaHistory" },
+      {
+        "<leader>aN",
+        function()
+          require("maxa.session.notify_when_done").toggle_default()
+        end,
+        desc = "Toggle Maxa AI completion listener default",
+      },
+    },
+    opts = {
+      maxa = {
+        protocol_defaults = {
+          openai_responses = {
+            default_model = DEFAULT_OPENAI_MODEL,
+            compact_model = DEFAULT_OPENAI_COMPACT_MODEL,
+            models = { fallback = { [DEFAULT_OPENAI_MODEL] = {} } },
+            raw = DEFAULT_HTTP_RAW,
+            thinking_mode = DEFAULT_OPENAI_THINKING_MODE,
+          },
+          anthropic_messages = { default_model = "claude-opus-5.5", raw = DEFAULT_HTTP_RAW },
+          openai_compatible = { raw = DEFAULT_HTTP_RAW },
+          gemini = { raw = DEFAULT_HTTP_RAW },
+        },
+        defaults = {
+          chat = "main",
+          compact = {
+            adapter = DEFAULT_OPENAI_ADAPTER,
+            model = DEFAULT_OPENAI_MODEL,
+            thinking_mode = DEFAULT_OPENAI_THINKING_MODE,
+          },
+          summary = "light_text",
+          translate = "light_text",
+          title = "light_text",
+          image = {},
+          tts = {},
+          video = {},
+        },
+        presets = {
+          main = {
+            type = "chat",
+            adapter = DEFAULT_OPENAI_ADAPTER,
+            model = DEFAULT_OPENAI_MODEL,
+            visible = true,
+            description = "Complex reasoning, coding, and detailed investigation.",
+          },
+          light_text = {
+            type = "chat",
+            adapter = "deepseek",
+            model = "deepseek-v4-flash",
+            thinking_mode = "none",
+            visible = true,
+            description = "Lightweight text processing: summaries, translation, and titles.",
+          },
+          -- image = {
+          --   type = "image",
+          --   adapter = "my_oai",
+          --   model = "gpt-image-2.5",
+          --   requested_size = "auto",
+          --   output_format = "png",
+          --   visible = true,
+          --   description = "Image generation and editing.",
+          -- },
+          -- complex = {
+          --   type = "chat",
+          --   adapter = DEFAULT_OPENAI_ADAPTER,
+          --   model = "gpt-6-astra",
+          --   visible = true,
+          --   description = "Only for unusually complex reasoning or difficult long multi-step tasks needing extra capability. Otherwise omit preset and keep the configured default.",
+          -- },
+          -- quick = {
+          --   type = "chat",
+          --   adapter = DEFAULT_OPENAI_ADAPTER,
+          --   model = "gpt-6-luna",
+          --   visible = true,
+          --   description = "Only for simple, well-scoped tasks where fast responses are important. Otherwise omit preset and keep the configured default.",
+          -- },
+        },
+        providers = {
+          deepseek = {
+            type = "deepseek",
+            base_url = "https://api.deepseek.com",
+            api_key = env.get("DEEPSEEK_API_KEY"),
+            quota = true,
+            llm = {
+              openai_responses = {
+                name = "deepseek",
+                formatted_name = "Deepseek",
+                unsupported_parameters = {},
+                extend = require("maxa.adapters.http.openai_responses_extensions.deepseek").extend,
+                schema = { model = { default = "deepseek-v4-flash", choices = { ["deepseek-v4-flash"] = {} } } },
+                maxa = { compact = { adapter = "inherit", model = "deepseek-v4-flash" } },
+              },
+            },
+          },
+          -- my_oai = {
+          --   type = "local",
+          --   base_url = "http://127.0.0.1:52301/v1",
+          --   api_key = env.get("MY_OAI_API_KEY"),
+          --   quota = true,
+          --   llm = {
+          --     openai_responses = {
+          --       name = "my_oai",
+          --       formatted_name = "My OpenAI",
+          --       parameters = {
+          --         service_tier = "priority", -- fast
+          --       },
+          --     },
+          --   },
+          --   genai = {
+          --     image = {
+          --       mode = "codex",
+          --     },
+          --   },
+          -- },
+          -- newapi_example = {
+          --   type = "newapi",
+          --   base_url = "https://newapi_example.local/v1",
+          --   api_key = env.get("NEWAPI_API_KEY"),
+          --   quota = { access_token = env.get("NEWAPI_ACCESS_TOKEN"), user_id = env.get("NEWAPI_USER_ID") },
+          --   llm = {
+          --     openai_responses = {
+          --       name = "newapi_example",
+          --       formatted_name = "Newapi Example",
+          --     },
+          --   },
+          --   genai = {
+          --     image = {
+          --       mode = "compatible",
+          --       api_key = env.get("NEWAPI_IMAGE_API_KEY"),
+          --       request = { stream = true },
+          --     },
+          --   },
+          -- },
+          -- sub2api_example = {
+          --   type = "sub2api",
+          --   base_url = "https://sub2api_example.local/v1",
+          --   api_key = env.get("SUB2API_API_KEY"),
+          --   quota = true,
+          --   llm = {
+          --     openai_responses = {
+          --       name = "sub2api_example",
+          --       formatted_name = "Sub2api Example",
+          --     },
+          --   },
+          --   genai = {
+          --     image = {
+          --       mode = "compatible",
+          --       api_key = env.get("SUB2API_IMAGE_API_KEY"),
+          --       request = { stream = true },
+          --     },
+          --   },
+          -- },
+        },
+      },
+    },
+    dependencies = {
+      "nvim-lua/plenary.nvim",
+      "nvim-treesitter/nvim-treesitter",
+      {
+        "MeanderingProgrammer/render-markdown.nvim",
+        ft = { "markdown", "maxa_ai" },
+      },
+      {
+        "HakonHarnes/img-clip.nvim",
+        opts = {
+          filetypes = {
+            maxa_ai = {
+              prompt_for_file_name = false,
+              template = "[Image]($FILE_PATH)",
+              use_absolute_path = true,
+            },
+          },
+        },
+      },
+      -- blink.cmp integration
+      {
+        "saghen/blink.cmp",
+        opts = {
+          sources = {
+            per_filetype = {
+              maxa_ai = { "maxa_ai" },
+            },
+          },
+        },
+      },
+      {
+        "nvim-lualine/lualine.nvim",
+        event = "VeryLazy",
+        opts = function(_, opts)
+          local cc_status_lualine = require("maxa.session.status.lualine")
+          local cc_details_component = {
+            cc_status_lualine.details_status,
+            cond = cc_status_lualine.has_display_chat,
+            on_click = function()
+              cc_status_lualine.refresh()
+            end,
+            __maxa_ai_status = true,
+          }
+          local cc_notify_component = {
+            cc_status_lualine.notify_icon,
+            cond = cc_status_lualine.has_display_chat,
+            color = function()
+              return cc_status_lualine.notify_hl_group()
+            end,
+            on_click = function()
+              cc_status_lualine.toggle_notify()
+            end,
+            __maxa_ai_status = true,
+          }
+          local cc_spinner_component = {
+            cc_status_lualine.spinner_status,
+            cond = cc_status_lualine.cond,
+            color = function()
+              return cc_status_lualine.hl_group()
+            end,
+            on_click = function()
+              cc_status_lualine.refresh()
+            end,
+            __maxa_ai_status = true,
+          }
+
+          table.insert(opts.sections.lualine_y, 1, cc_details_component)
+          table.insert(opts.sections.lualine_y, 1, cc_notify_component)
+          table.insert(opts.sections.lualine_y, 1, cc_spinner_component)
+        end,
+      },
+    },
+  },
+}

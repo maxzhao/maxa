@@ -1,0 +1,25 @@
+{
+  "name": "disable-unresolved-link",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Prevents creating new notes when clicking unresolved (non-existing) links in reading mode and graph view.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "typecheck": "tsc -noEmit -skipLibCheck"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin"
+  ],
+  "author": "Maxa",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "latest",
+    "builtin-modules": "latest",
+    "esbuild": "latest",
+    "obsidian": "latest",
+    "typescript": "latest"
+  }
+}

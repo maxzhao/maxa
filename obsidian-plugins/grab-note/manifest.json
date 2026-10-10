@@ -1,0 +1,9 @@
+{
+  "id": "grab-note",
+  "name": "Grab Note",
+  "version": "0.1.22",
+  "minAppVersion": "1.0.0",
+  "description": "Select any block in reading view, add feedback, and save for AI agents to process.",
+  "author": "Maxa",
+  "isDesktopOnly": false
+}

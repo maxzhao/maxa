@@ -1,0 +1,35 @@
+version: 1
+
+# Optional explicit identities used by detect and generated model context.
+# Paths are local absolute paths; create does not add entries automatically.
+# workspaces:
+#   - name: main
+#     path: /absolute/path/to/primary-checkout
+#     type: main
+#     responsibility: Shared integration and governance
+
+layout:
+  root: "../{repo_name}-workspaces"
+  name_template: "{repo_name}-{workspace}"
+  branch_template: "workspace/{workspace}"
+
+create:
+  base: current_head
+  after_commands:
+    # - command: just prepare-local
+    #   cwd: .
+
+sync:
+  on_create: true
+  source: current_checkout
+  only_untracked: true
+  existing_target: skip_warn
+  missing_source: warn
+  include_patterns: |
+    # Add project-specific untracked files/directories after user confirmation.
+    # .env.local
+    # .mcp.json
+    # .vscode/
+  link_patterns: |
+    # Add files that must link to the primary worktree after user confirmation.
+    # .env

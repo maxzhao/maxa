@@ -1,0 +1,60 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: game_sprite_animation_frame
+category: game-sprite
+description: Game character sprite, sprite sheet, or one animation frame with style, frame context, and invariants.
+source_inspiration: SpriteForge-style sprite prompt factory; rewritten as generic genai Prompt-as-Code.
+recommended_requested_size: 1024x1024
+required_inputs:
+  - character_concept
+  - style_family
+  - sprite_mode
+  - action_or_frame_goal
+optional_inputs:
+  - intended_sprite_scale
+  - view_direction
+  - frame_count
+  - frame_grid
+  - frame_index
+  - previous_frame_summary
+  - next_frame_summary
+  - character_invariants
+  - palette
+  - outline_policy
+  - shading_policy
+  - background_policy
+prompt_schema:
+  structure: |
+    Create a game-ready isolated {{sprite_mode}} for {{character_concept}}.
+    Style family: {{style_family}}.
+    Intended sprite scale: {{intended_sprite_scale | default: 'readable small game sprite scale'}}; generated output may be enlarged for inspection.
+    View direction: {{view_direction | default: 'clear game-readable view'}}.
+    Action / frame goal: {{action_or_frame_goal}}.
+    {{frame_context}}
+    Character invariants: {{character_invariants | default: 'same silhouette, proportions, costume, palette, outline thickness, and key props across frames'}}.
+    Rendering rules: {{palette | default: 'controlled game palette'}}, {{outline_policy | default: 'clean dark outline'}}, {{shading_policy | default: 'simple readable game shading'}}.
+    Background policy: {{background_policy | default: 'isolated sprite on a simple plain backdrop, clean silhouette, no scenery, no UI, no text, no logo'}}.
+    Constraints: game-ready silhouette, consistent proportions, no identity drift, no extra limbs, no random props, no merged frames.
+  dynamic_fields:
+    frame_context: |
+      If this is one frame in a sequence, include: Frame context: frame {{frame_index}} of {{frame_count}}. Previous frame: {{previous_frame_summary}}. Current frame: {{action_or_frame_goal}}. Next frame: {{next_frame_summary}}. Preserve smooth motion progression.
+provider_constraints:
+  mode: image_generate
+  output_format: png
+  requested_size: 1024x1024
+  notes:
+    - Keep output settings separate from prompt prose and honor an explicitly requested opaque background.
+    - Do not use n > 1; generate candidates as independent calls.
+    - For iterative frame continuation from an existing image, switch to image_edit and put the previous frame in image_paths.
+visual_verify:
+  - When an existing frame is continued with image_edit, apply references/image-edit-review-standard.md; accept normal redraw when first-glance sprite identity holds, while frame registration and sequence alignment remain named strict invariants.
+  - Output is sprite-like and isolated, not a poster or scenery illustration.
+  - Action/frame goal is readable at small scale.
+  - Character invariants are preserved across visible frames.
+  - Sprite sheet grid, frame count, gutters, and order are correct when applicable.
+  - No text, UI, watermark, random background, extra characters, or accidental logos.
+  - The requested visible background policy and subject isolation are satisfied.
+failure_repair:
+  - If output looks like a full illustration, emphasize isolated sprite, no scenery, small-scale readability.
+  - If frames drift, use the approved frame as an edit reference, repeat character invariants, and describe the requested pose/contact changes precisely.
+  - If grid is wrong, restate the required frame count, rows, columns, gutters, and order rather than deleting frames.

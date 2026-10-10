@@ -1,0 +1,62 @@
+# Optional domain brief; references/craft.md owns shared image generation/editing techniques.
+# Keep settings outside prompt prose; references/preflight.md owns runtime support and exact-size handling.
+id: presentation_pitch_slide
+category: presentation-slide
+description: >-
+  Create a single pitch deck cover, sample slide, or data slide visual with
+  one clear takeaway, exact short text, and executive-ready hierarchy.
+source_inspiration:
+  - pitch slide and business artifact workflow concept
+  - genai references/categories/presentation-slide.md
+recommended_requested_size: 2048x1152
+required_inputs:
+  - deck_or_product_name
+  - audience_or_use_case
+  - slide_role
+  - exact_title
+  - takeaway_message
+  - layout_type
+  - visual_system
+optional_inputs:
+  - subtitle
+  - content_blocks
+  - metrics
+  - footer_text
+  - brand_constraints
+  - carousel_ratio
+prompt_schema:
+  role: Presentation slide art director
+  structure:
+    - Create a 16:9 presentation slide visual for "{{audience_or_use_case}}".
+    - "Deck/product: {{deck_or_product_name}}; slide role: {{slide_role}}."
+    - "Exact title: {{exact_title}}."
+    - "Subtitle: {{subtitle | default: 'none unless provided'}}."
+    - "Takeaway message: {{takeaway_message}}."
+    - "Layout: {{layout_type}}."
+    - "Content blocks: {{content_blocks | default: 'minimal blocks only'}}; metrics: {{metrics | default: 'none unless provided'}}."
+    - "Visual system: {{visual_system}}; brand constraints: {{brand_constraints | default: 'use only provided brand cues'}}."
+    - "Footer text: {{footer_text | default: 'omit'}}."
+    - Prioritize boardroom-ready polish, crisp readable text, strong hierarchy, consistent margins, and a restrained presentation aesthetic.
+    - Do not imply an editable PPTX was generated; this is a visual slide image or prompt direction.
+provider_constraints:
+  provider: configured_default # Planning marker only; omit any provider override and follow references/preflight.md.
+  mode: image_generate_or_image_edit
+  requested_size: 2048x1152
+  output_format: png
+  disallow:
+    - n_greater_than_1
+    - response_format
+  notes:
+    - For a full deck, first produce a slide plan or one sample slide rather than generating all slides blindly.
+    - Keep the requested slide ratio and exact dimensions during draft comparisons; use references/preflight.md for supported settings.
+visual_verify:
+  - When mode is image_edit, apply references/image-edit-review-standard.md; accept normal redraw when first-glance slide identity and protected layout hold, while exact requested text and metrics remain strict invariants.
+  - Title, subtitle, bullets, metrics, and footer text are accurate and readable.
+  - Canvas appears as a coherent 16:9 slide with clear hierarchy, margins, grid, and one main message.
+  - Visual system matches provided brand cues without fake customer logos or unprovided claims.
+  - Response does not claim editable PPTX output; if needed, it suggests later conversion to PPT/Keynote/Figma.
+failure_repair:
+  - If text is garbled, edit only failed text with exact supplied copy and explicit placement, preserving required labels, metrics, footnotes, and layout.
+  - If slide is cluttered, improve grouping, spacing, and hierarchy without deleting required blocks or data; splitting slides requires user authorization.
+  - If aspect or hierarchy is wrong, explicitly request 16:9 landscape, title region, hero region, and footer region.
+  - If fake logos or metrics appear, state that only provided metrics and brand assets may be shown.

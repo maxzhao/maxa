@@ -1,0 +1,8 @@
+visibility: global
+triggers:
+  - "self-improvement"
+  - "experience capture"
+  - "capture note"
+  - "TaskCompleted"
+  - "knowledge capture"
+suite: [project-management]

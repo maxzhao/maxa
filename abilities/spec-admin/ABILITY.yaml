@@ -1,0 +1,18 @@
+visibility: global
+prompts: true
+triggers:
+  - "spec-admin"
+  - "spec-driven development"
+  - "spec driven development"
+  - "OpenSpec"
+  - "Spec Kit"
+  - "delta spec"
+  - "change proposal"
+  - "requirement spec"
+  - "requirements specification"
+  - "feature specification"
+  - "code-spec convergence"
+  - "sources/specs"
+  - "spec archive"
+  - "bootstrap specs from code"
+suite: [project-management]

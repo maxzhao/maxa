@@ -1,0 +1,7 @@
+{
+  "name": "maxa-mcp-hub-backend",
+  "private": true,
+  "dependencies": {
+    "mcp-hub": "4.2.1"
+  }
+}
