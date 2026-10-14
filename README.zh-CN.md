@@ -6,8 +6,6 @@
 
 [![点击在 B 站观看视频](https://i2.hdslb.com/bfs/archive/ac018a410a1352cc57db2eef539a5dbf09769011.jpg@308w_174h)](https://www.bilibili.com/video/BV1LXpm6QEDw/)
 
-_临时占位视频：Rick Astley《Never Gonna Give You Up》官方 MV。点击封面前往 B 站播放。_
-
 Maxa 这个名字来自 _Max's Agent_。Maxa 将 AI 对话、代码补全、功能实施和项目维护整合到同一个 Neovim 环境中。
 
 Agent 可以读代码、改文件、执行命令、使用外部工具、把独立工作交给子代理，并在长任务中保留上下文。点子、规格、进度和知识则通过项目本地文件留在项目里。
