@@ -4,9 +4,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Video](https://www.bilibili.com/video/BV1LXpm6QEDw/)
 
-[![Watch the temporary video on BiliBili](https://i2.hdslb.com/bfs/archive/ac018a410a1352cc57db2eef539a5dbf09769011.jpg@308w_174h)](https://www.bilibili.com/video/BV1LXpm6QEDw/)
-
-_Temporary video: “Me at the zoo” by jawed. Click the preview to watch on YouTube._
+[![Watch the video on BiliBili](https://i2.hdslb.com/bfs/archive/ac018a410a1352cc57db2eef539a5dbf09769011.jpg@308w_174h)](https://www.bilibili.com/video/BV1LXpm6QEDw/)
 
 The name Maxa comes from _Max's Agent_. Maxa brings AI conversations, code completion, implementation, and project maintenance into the same Neovim environment.
 
